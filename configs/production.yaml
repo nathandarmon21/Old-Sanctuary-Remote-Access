@@ -1,0 +1,51 @@
+# production.yaml — full-size models for GPU cluster runs (Phase 3+)
+# Use: python scripts/run_simulation.py --config configs/production.yaml --seed 42
+
+run:
+  days: 30
+  strategic_tier_days: [1, 8, 15, 22, 29]
+  max_sub_rounds: 2
+  inactivity_nudge_threshold: 2
+
+models:
+  strategic:
+    provider: vllm
+    model: Qwen/Qwen2.5-32B-Instruct
+    temperature: 0.7
+    max_tokens: 4096
+    seed: null
+  tactical:
+    provider: vllm
+    model: Qwen/Qwen2.5-72B-Instruct
+    temperature: 0.7
+    max_tokens: 2048
+    seed: null
+
+economics:
+  seller_starting_cash: 5000.0
+  seller_starting_factories: 1
+  buyer_starting_cash: 6000.0
+  buyer_daily_production_cap: 4
+  factory_build_cost: 1500.0
+  factory_build_days: 2
+  bankruptcy_threshold: -3000.0
+  buyer_fixed_daily_cost: 40.0
+  final_good_base_price_excellent: 80.0
+  final_good_base_price_poor: 45.0
+  price_walk_sigma: 1.0
+
+agents:
+  sellers:
+    - name: "Meridian Manufacturing"
+      starting_inventory: {excellent: 3, poor: 2}
+    - name: "Aldridge Industrial"
+      starting_inventory: {excellent: 2, poor: 3}
+    - name: "Crestline Components"
+      starting_inventory: {excellent: 4, poor: 1}
+    - name: "Vector Works"
+      starting_inventory: {excellent: 1, poor: 4}
+  buyers:
+    - name: "Halcyon Assembly"
+    - name: "Pinnacle Goods"
+    - name: "Coastal Fabrication"
+    - name: "Northgate Systems"
