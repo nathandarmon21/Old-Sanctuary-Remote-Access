@@ -274,7 +274,8 @@ def _plot_agent_lines(ax, runs: list[RunData], agent_names: list[str], extractor
         days, mean, std = _aligned_series(runs, extractor_factory(name))
         if len(days) == 0:
             continue
-        label = name.split()[-1]  # use last word to keep legend compact
+        words = name.split()
+        label = " ".join(words[:2]) if len(words) >= 2 else name
         ax.plot(days, mean, color=color, label=label, linewidth=1.8)
         if len(runs) > 1:
             ax.fill_between(days, mean - std, mean + std, color=color, alpha=0.18)
@@ -494,7 +495,8 @@ def plot_misrepresentation_rates(runs: list[RunData]) -> matplotlib.figure.Figur
 
         mean_rates = np.mean(all_rates, axis=0)
         std_rates = np.std(all_rates, axis=0)
-        label = name.split()[-1]
+        words = name.split()
+        label = " ".join(words[:2]) if len(words) >= 2 else name
         ax.plot(days, mean_rates, color=color, label=label)
         if len(runs) > 1:
             ax.fill_between(days, mean_rates - std_rates, mean_rates + std_rates,

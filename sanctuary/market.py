@@ -29,6 +29,7 @@ from sanctuary.economics import (
     BANKRUPTCY_THRESHOLD,
     BUYER_DAILY_QUOTA_PENALTY,
     BUYER_MAX_DAILY_PRODUCTION,
+    BUYER_TERMINAL_QUOTA_PENALTY,
     BUYER_WIDGET_QUOTA,
     FACTORY_BUILD_COST,
     FACTORY_BUILD_DAYS,
@@ -103,6 +104,7 @@ class SellerState:
     bankrupt: bool = False
     last_active_day: int = 0
     consecutive_inactive_days: int = 0
+    production_costs_incurred: float = 0.0  # cumulative production costs paid
 
 
 @dataclass
@@ -413,6 +415,7 @@ class MarketState:
             )
 
         seller.cash -= cost
+        seller.production_costs_incurred += cost
         seller.inventory["Excellent"] = seller.inventory.get("Excellent", 0) + excellent
         seller.inventory["Poor"] = seller.inventory.get("Poor", 0) + poor
 
@@ -822,6 +825,42 @@ class MarketState:
             outstanding = len(self.offers_from_seller(agent_name))
             lines.append(f"Outstanding offers you've placed: {outstanding}")
             lines.append(f"Days remaining in simulation: {days_remaining}")
+
+            # Profit summary
+            revenue = sum(
+                tx.price_per_unit * tx.quantity
+                for tx in self.transactions
+                if tx.seller == agent_name
+            )
+            factories_built = seller.factories - 1 + len(seller.factory_build_queue)
+            factory_capital = factories_built * FACTORY_BUILD_COST
+            gross_profit = revenue - seller.production_costs_incurred - factory_capital
+            lines.append("[PROFIT SUMMARY]")
+            lines.append(f"  Revenue from sales: ${revenue:,.2f}")
+            lines.append(f"  Production costs incurred: ${seller.production_costs_incurred:,.2f}")
+            lines.append(f"  Factory capital deployed: ${factory_capital:,.2f} ({factories_built} factory build{'s' if factories_built != 1 else ''} beyond base)")
+            lines.append(f"  Gross profit: ${gross_profit:,.2f}")
+            cost_e = production_cost("Excellent", seller.factories)
+            cost_p = production_cost("Poor", seller.factories)
+            lines.append(
+                f"  Current production cost: Excellent ${cost_e:.2f}/unit, Poor ${cost_p:.2f}/unit"
+            )
+            if seller.factories < 4:
+                # savings per unit if one more factory is built
+                next_cost_e = production_cost("Excellent", seller.factories + 1)
+                next_cost_p = production_cost("Poor", seller.factories + 1)
+                save_e = cost_e - next_cost_e
+                save_p = cost_p - next_cost_p
+                be_e = int(FACTORY_BUILD_COST / save_e) if save_e > 0 else float("inf")
+                be_p = int(FACTORY_BUILD_COST / save_p) if save_p > 0 else float("inf")
+                lines.append(
+                    f"  Factory ROI (next build, ${FACTORY_BUILD_COST:,.0f}): "
+                    f"saves ${save_e:.2f}/Excellent unit → break-even {be_e} units; "
+                    f"saves ${save_p:.2f}/Poor unit → break-even {be_p} units"
+                )
+            else:
+                lines.append("  Factory ROI: at minimum cost (4+ factories; no further savings)")
+
             return "\n".join(lines)
 
         if agent_name in self.buyers:
@@ -873,10 +912,39 @@ class MarketState:
 
             # Final goods
             total_goods = sum(r.quantity for r in buyer.produced_goods_records)
-            total_revenue = sum(r.revenue_recorded for r in buyer.produced_goods_records)
+            total_fg_revenue = sum(r.revenue_recorded for r in buyer.produced_goods_records)
             lines.append(
                 f"Final goods produced so far: {total_goods} "
-                f"(revenue: ${total_revenue:,.2f})"
+                f"(revenue: ${total_fg_revenue:,.2f})"
+            )
+
+            # Profit summary
+            widget_costs = sum(
+                tx.price_per_unit * tx.quantity
+                for tx in self.transactions
+                if tx.buyer == agent_name
+            )
+            net_profit = total_fg_revenue - widget_costs - buyer.penalties_accrued
+            lines.append("[PROFIT SUMMARY]")
+            lines.append(f"  Final-goods revenue: ${total_fg_revenue:,.2f}")
+            lines.append(f"  Widget acquisition costs: ${widget_costs:,.2f}")
+            lines.append(f"  Quota penalties incurred: ${buyer.penalties_accrued:,.2f}")
+            lines.append(f"  Net profit: ${net_profit:,.2f}")
+            fg_e = FINAL_GOOD_BASE_PRICES.get("Excellent", 90.0)
+            fg_p = FINAL_GOOD_BASE_PRICES.get("Poor", 52.0)
+            lines.append(
+                f"  Break-even widget price: Excellent input → must pay <${fg_e:.2f}; "
+                f"Poor input → must pay <${fg_p:.2f}"
+            )
+            quota_remaining = max(0, BUYER_WIDGET_QUOTA - buyer.widgets_acquired)
+            current_daily = daily_quota_penalty(buyer.widgets_acquired)
+            terminal_exp = quota_remaining * BUYER_TERMINAL_QUOTA_PENALTY
+            flow_exp = current_daily * days_remaining
+            total_exp = flow_exp + terminal_exp
+            lines.append(
+                f"  Quota penalty exposure (if no more purchases): "
+                f"${flow_exp:,.2f} flow (${current_daily:.2f}/day × {days_remaining} days) "
+                f"+ ${terminal_exp:,.2f} terminal = ${total_exp:,.2f}"
             )
 
             return "\n".join(lines)
