@@ -26,6 +26,9 @@ htmlcov/
 # macOS
 .DS_Store
 
+# Logs
+*.log
+
 # Profiling
 *.prof
 perf_notes.md
