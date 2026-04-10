@@ -1,0 +1,2813 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Sanctuary -- LLM Agent Marketplace Experiment</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg-welcome: #f5f0eb;
+  --bg-dash: #f4f2ef;
+  --card: #ffffff;
+  --card-border: #e6e0d8;
+  --text: #1e1a14;
+  --text-sec: #5a4e3c;
+  --text-muted: #9a8f7e;
+  --accent: #c0622a;
+  --green: #4caf82;
+  --red: #e05252;
+  --amber: #d4882a;
+  --purple: #7c5fb0;
+  --teal: #2a8fa0;
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+
+  /* Seller warm tones */
+  --seller-1: #c0622a;
+  --seller-2: #b84a2e;
+  --seller-3: #d4882a;
+  --seller-4: #a85c3a;
+
+  /* Buyer cool tones */
+  --buyer-1: #3a6fb8;
+  --buyer-2: #2a8fa0;
+  --buyer-3: #7c5fb0;
+  --buyer-4: #2e7a6c;
+}
+
+html, body { height: 100%; font-family: var(--font); font-size: 14px; color: var(--text); }
+
+.hidden { display: none !important; }
+
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #ccc4b8; border-radius: 3px; }
+
+/* ================================================
+   WELCOME SCREEN
+================================================ */
+#welcome {
+  min-height: 100vh;
+  background: var(--bg-welcome);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 48px 24px 64px;
+}
+
+.welcome-inner {
+  width: 100%;
+  max-width: 960px;
+}
+
+.lab-label {
+  text-align: center;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+
+.welcome-title {
+  text-align: center;
+  font-size: 38px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 14px;
+  line-height: 1.1;
+}
+
+.welcome-title span { color: var(--accent); }
+
+.welcome-desc {
+  text-align: center;
+  color: var(--text-sec);
+  font-size: 15px;
+  line-height: 1.65;
+  max-width: 700px;
+  margin: 0 auto 36px;
+}
+
+.section-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+
+/* Agent preview grid on welcome */
+.agents-preview {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-bottom: 32px;
+}
+
+.agent-preview-tier {
+  margin-bottom: 24px;
+}
+
+.agent-preview-tier-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+  padding-left: 2px;
+}
+
+.agent-preview-card {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1.5px solid var(--card-border);
+  background: var(--card);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.agent-preview-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.agent-preview-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.2;
+}
+
+.agent-preview-role {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+/* Protocol grid */
+.protocol-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 32px;
+}
+
+.protocol-card {
+  background: var(--card);
+  border: 2px solid var(--card-border);
+  border-radius: 12px;
+  padding: 18px 16px 16px;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  position: relative;
+  user-select: none;
+}
+
+.protocol-card:hover {
+  border-color: #c8b49a;
+  box-shadow: 0 2px 12px rgba(192,98,42,0.08);
+}
+
+.protocol-card.selected {
+  border-color: var(--accent);
+  box-shadow: 0 2px 16px rgba(192,98,42,0.15);
+}
+
+.protocol-check {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.protocol-card.selected .protocol-check { opacity: 1; }
+
+.protocol-check svg { width: 11px; height: 11px; fill: none; stroke: #fff; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+
+.protocol-emoji {
+  font-size: 28px;
+  margin-bottom: 8px;
+  display: block;
+}
+
+.protocol-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 3px;
+}
+
+.protocol-tagline {
+  font-size: 12px;
+  color: var(--text-sec);
+  line-height: 1.4;
+}
+
+.protocol-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin-top: 8px;
+  display: none;
+}
+
+.protocol-card.selected .protocol-desc { display: block; }
+
+.custom-textarea {
+  width: 100%;
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  font-family: var(--font);
+  font-size: 12px;
+  color: var(--text);
+  background: #f8f5f0;
+  resize: vertical;
+  min-height: 72px;
+  outline: none;
+  display: none;
+}
+
+.custom-textarea:focus { border-color: var(--accent); }
+.protocol-card.selected .custom-textarea { display: block; }
+
+/* Simulation settings */
+.sim-settings {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  margin-bottom: 36px;
+  flex-wrap: wrap;
+}
+
+.input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.input-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.input-field {
+  padding: 9px 13px;
+  border: 1.5px solid var(--card-border);
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: var(--font);
+  color: var(--text);
+  background: var(--card);
+  width: 120px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.input-field:focus { border-color: var(--accent); }
+
+.btn-run {
+  margin-left: auto;
+  padding: 10px 24px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+  white-space: nowrap;
+}
+
+.btn-run:hover { background: #a8501e; }
+.btn-run:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Previous runs */
+.prev-runs-section { margin-top: 4px; }
+
+.runs-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.runs-table th {
+  padding: 10px 14px;
+  text-align: left;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  background: #f8f5f0;
+  border-bottom: 1px solid var(--card-border);
+}
+
+.runs-table td {
+  padding: 10px 14px;
+  font-size: 13px;
+  color: var(--text-sec);
+  border-bottom: 1px solid #f0ece5;
+}
+
+.runs-table tr:last-child td { border-bottom: none; }
+.runs-table tbody tr:hover { background: #f8f5f0; }
+
+.protocol-pill {
+  display: inline-block;
+  padding: 2px 10px;
+  background: rgba(192,98,42,0.12);
+  color: var(--accent);
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.no-runs {
+  padding: 24px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+}
+
+/* ================================================
+   DASHBOARD
+================================================ */
+#dashboard {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--bg-dash);
+  overflow: hidden;
+}
+
+/* Top bar */
+.topbar {
+  background: #fff;
+  border-bottom: 1px solid var(--card-border);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 16px;
+  height: 48px;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.topbar::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--seller-1), var(--seller-3), var(--buyer-1), var(--buyer-2));
+}
+
+.tb-brand {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  color: var(--text);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.tb-day {
+  font-size: 13px;
+  color: var(--text-sec);
+  white-space: nowrap;
+}
+
+.tb-day strong { color: var(--accent); font-weight: 600; }
+
+.tb-protocol-pill {
+  padding: 2px 9px;
+  background: #f0ebe3;
+  color: var(--text-sec);
+  border-radius: 20px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.tb-stats {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.tb-spacer { flex: 1; }
+
+.tb-speed-group {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--text-sec);
+}
+
+.tb-speed-input {
+  width: 52px;
+  padding: 3px 6px;
+  border: 1px solid var(--card-border);
+  border-radius: 5px;
+  font-size: 12px;
+  font-family: var(--font);
+  color: var(--text);
+  text-align: center;
+  outline: none;
+}
+
+.tb-speed-input:focus { border-color: var(--accent); }
+
+/* Replay scrubber (shown in replay mode) */
+.tb-scrubber-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-sec);
+}
+
+.tb-scrubber {
+  width: 180px;
+  accent-color: var(--accent);
+}
+
+.tb-btn {
+  padding: 5px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1.5px solid;
+  transition: background 0.12s, color 0.12s;
+  white-space: nowrap;
+}
+
+.btn-pause {
+  background: transparent;
+  border-color: var(--amber);
+  color: var(--amber);
+}
+
+.btn-pause:hover { background: rgba(212,136,42,0.08); }
+
+.btn-ff {
+  background: transparent;
+  border-color: var(--card-border);
+  color: var(--text-sec);
+  font-size: 11px;
+}
+
+.btn-ff.active {
+  background: rgba(192,98,42,0.08);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.btn-ff:hover { border-color: var(--accent); color: var(--accent); }
+
+.btn-new {
+  background: transparent;
+  border-color: var(--card-border);
+  color: var(--text-sec);
+  font-size: 11px;
+}
+
+.btn-new:hover { border-color: var(--text-muted); }
+
+.ws-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ccc;
+  flex-shrink: 0;
+}
+
+.ws-dot.connected { background: var(--green); }
+.ws-dot.error { background: var(--red); }
+
+/* Progress bar */
+.day-progress {
+  height: 3px;
+  background: #e8e0d4;
+  flex-shrink: 0;
+}
+
+.day-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.4s ease;
+}
+
+/* Main layout */
+.main-layout {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Activity feed */
+.feed-col {
+  width: 260px;
+  min-width: 200px;
+  max-width: 300px;
+  background: var(--card);
+  border-right: 1px solid var(--card-border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.feed-header {
+  padding: 12px 14px 0;
+  flex-shrink: 0;
+}
+
+.feed-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 10px;
+}
+
+.feed-filters {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.feed-filter {
+  padding: 3px 9px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid var(--card-border);
+  color: var(--text-sec);
+  background: transparent;
+  transition: all 0.12s;
+}
+
+.feed-filter.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.feed-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 10px;
+}
+
+.feed-item {
+  padding: 7px 6px;
+  border-bottom: 1px solid #f0ece5;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.feed-item:last-child { border-bottom: none; }
+
+.feed-item-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.feed-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.badge-private { background: rgba(124,95,176,0.15); color: #7c5fb0; }
+.badge-offer   { background: rgba(212,136,42,0.15);  color: #a86e18; }
+.badge-sys     { background: rgba(154,143,126,0.15); color: #6b5f4a; }
+.badge-sale    { background: rgba(76,175,130,0.15);  color: #3a9468; }
+.badge-quality { background: rgba(58,111,184,0.15);  color: #2a5fa0; }
+.badge-market  { background: rgba(192,98,42,0.12);   color: var(--accent); }
+
+.feed-day {
+  font-size: 10px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.feed-body {
+  font-size: 12px;
+  color: var(--text-sec);
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+/* Right column */
+.right-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+/* Agent section -- two tiers */
+.agents-section {
+  padding: 10px 14px 8px;
+  flex-shrink: 0;
+  background: var(--bg-dash);
+  border-bottom: 1px solid var(--card-border);
+}
+
+.agents-tier {
+  margin-bottom: 8px;
+}
+
+.agents-tier:last-child {
+  margin-bottom: 0;
+}
+
+.agents-tier-label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-bottom: 5px;
+  padding-left: 2px;
+}
+
+.seller-tier-label { color: #c0622a; }
+.buyer-tier-label  { color: #3a6fb8; }
+
+.agent-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 7px;
+}
+
+/* Agent cards */
+.agent-card {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 9px;
+  padding: 9px 11px;
+  cursor: pointer;
+  transition: box-shadow 0.15s, border-color 0.15s;
+  position: relative;
+  overflow: hidden;
+  border-top: 3px solid transparent;
+}
+
+.agent-card:hover {
+  box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+}
+
+.agent-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.agent-name-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.agent-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.agent-name {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-role-tag {
+  font-size: 10px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.agent-balance {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1;
+  margin-bottom: 2px;
+}
+
+.agent-stats-row {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-bar-wrap {
+  height: 3px;
+  background: #ede8e0;
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 3px;
+}
+
+.agent-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.4s ease;
+}
+
+.agent-status {
+  font-size: 10px;
+  color: var(--green);
+}
+
+/* Content area */
+.content-area {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* Tabs */
+.tab-bar {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--card-border);
+  background: var(--card);
+  flex-shrink: 0;
+  padding: 0 16px;
+}
+
+.tab-btn {
+  padding: 10px 15px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color 0.12s, border-color 0.12s;
+  white-space: nowrap;
+}
+
+.tab-btn:hover { color: var(--text-sec); }
+.tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+
+.tab-panels {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px;
+  background: var(--bg-dash);
+}
+
+/* Chart cards */
+.chart-card {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+}
+
+.chart-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-sec);
+  margin-bottom: 10px;
+}
+
+.chart-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.chart-row-3 {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.chart-wrap { position: relative; }
+
+/* Transactions table */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.data-table th {
+  padding: 8px 10px;
+  text-align: left;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--card-border);
+  background: #f8f5f0;
+}
+
+.data-table td {
+  padding: 8px 10px;
+  color: var(--text-sec);
+  border-bottom: 1px solid #f0ece5;
+  vertical-align: middle;
+}
+
+.data-table tr:last-child td { border-bottom: none; }
+.data-table tbody tr:hover { background: #f8f5f0; }
+
+.misrep-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  background: rgba(224,82,82,0.12);
+  color: var(--red);
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  margin-left: 5px;
+}
+
+/* Events */
+.event-item {
+  display: flex;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid #f0ece5;
+}
+
+.event-item:last-child { border-bottom: none; }
+
+.event-day-badge {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  background: rgba(192,98,42,0.1);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  text-align: center;
+}
+
+.event-body {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text-sec);
+  line-height: 1.5;
+  padding-top: 2px;
+}
+
+/* Narratives */
+.narrative-card {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 10px;
+}
+
+.narrative-day {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent);
+  margin-bottom: 6px;
+}
+
+.narrative-text {
+  font-size: 13px;
+  color: var(--text-sec);
+  line-height: 1.6;
+}
+
+/* Conversations */
+.conv-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.conv-filter-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.conv-filter-select {
+  padding: 5px 10px;
+  border: 1.5px solid var(--card-border);
+  border-radius: 7px;
+  font-size: 12px;
+  font-family: var(--font);
+  color: var(--text);
+  background: var(--card);
+  outline: none;
+  cursor: pointer;
+  min-width: 220px;
+  transition: border-color 0.12s;
+}
+
+.conv-filter-select:focus { border-color: var(--accent); }
+
+/* Modals */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(20,16,10,0.45);
+  backdrop-filter: blur(2px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.modal-box {
+  background: var(--card);
+  border-radius: 14px;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.18);
+  width: 100%;
+  max-width: 700px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--card-border);
+  flex-shrink: 0;
+}
+
+.modal-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+  flex: 1;
+}
+
+.modal-close {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 18px;
+  color: var(--text-muted);
+  padding: 4px 6px;
+  border-radius: 6px;
+  transition: background 0.12s;
+}
+
+.modal-close:hover { background: #f0ece5; color: var(--text); }
+
+.modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 18px 20px;
+}
+
+/* Agent modal tabs */
+.modal-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--card-border);
+  margin-bottom: 16px;
+}
+
+.modal-tab {
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color 0.12s;
+}
+
+.modal-tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+
+/* EOR modal */
+.eor-grade {
+  font-size: 64px;
+  font-weight: 800;
+  line-height: 1;
+  text-align: center;
+  color: var(--accent);
+  margin-bottom: 6px;
+}
+
+.eor-score {
+  font-size: 18px;
+  font-weight: 700;
+  text-align: center;
+  color: var(--text-sec);
+  margin-bottom: 20px;
+}
+
+.eor-sub-scores {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.eor-sub {
+  background: #f8f5f0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  text-align: center;
+}
+
+.eor-sub-val {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.eor-sub-name {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-top: 2px;
+}
+
+.manip-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.manip-badge {
+  padding: 4px 10px;
+  background: rgba(224,82,82,0.1);
+  color: var(--red);
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.standings-table { width: 100%; border-collapse: collapse; }
+.standings-table th {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--card-border);
+  text-align: left;
+}
+.standings-table td {
+  padding: 8px 10px;
+  font-size: 13px;
+  color: var(--text-sec);
+  border-bottom: 1px solid #f0ece5;
+}
+.standings-table tr:last-child td { border-bottom: none; }
+
+/* Quota progress bar in buyer card */
+.quota-bar-wrap {
+  height: 4px;
+  background: #e8e0d4;
+  border-radius: 2px;
+  overflow: hidden;
+  margin: 3px 0;
+}
+
+.quota-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.4s ease;
+}
+
+/* Utility */
+.text-green  { color: var(--green); }
+.text-red    { color: var(--red); }
+.text-amber  { color: var(--amber); }
+.text-accent { color: var(--accent); }
+.fw600 { font-weight: 600; }
+
+.empty-state {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 32px 16px;
+}
+
+</style>
+</head>
+<body>
+
+<!-- ========================================== WELCOME ========== -->
+<div id="welcome">
+  <div class="welcome-inner">
+    <p class="lab-label">Sanctuary Protocol Lab</p>
+    <h1 class="welcome-title">The <span>Sanctuary</span></h1>
+    <p class="welcome-desc">A scientific experiment: 8 autonomous LLM-powered agents negotiate component contracts across 60 simulated days. Four manufacturers compete to sell industrial components; four industrial buyers must meet procurement quotas. All decisions are genuine AI reasoning calls. Choose a market protocol and observe what emerges.</p>
+
+    <!-- Agent preview -->
+    <p class="section-label">Participants</p>
+    <div style="margin-bottom:28px">
+      <div class="agent-preview-tier">
+        <div class="agents-tier-label seller-tier-label">Sellers (Manufacturers)</div>
+        <div class="agents-preview">
+          <div class="agent-preview-card"><span class="agent-preview-dot" style="background:var(--seller-1)"></span><div><div class="agent-preview-name">Meridian Mfg</div><div class="agent-preview-role">seller</div></div></div>
+          <div class="agent-preview-card"><span class="agent-preview-dot" style="background:var(--seller-2)"></span><div><div class="agent-preview-name">Aldridge Industrial</div><div class="agent-preview-role">seller</div></div></div>
+          <div class="agent-preview-card"><span class="agent-preview-dot" style="background:var(--seller-3)"></span><div><div class="agent-preview-name">Crestline Components</div><div class="agent-preview-role">seller</div></div></div>
+          <div class="agent-preview-card"><span class="agent-preview-dot" style="background:var(--seller-4)"></span><div><div class="agent-preview-name">Vector Works</div><div class="agent-preview-role">seller</div></div></div>
+        </div>
+      </div>
+      <div class="agent-preview-tier">
+        <div class="agents-tier-label buyer-tier-label">Buyers (Assemblers)</div>
+        <div class="agents-preview">
+          <div class="agent-preview-card"><span class="agent-preview-dot" style="background:var(--buyer-1)"></span><div><div class="agent-preview-name">Halcyon Assembly</div><div class="agent-preview-role">buyer</div></div></div>
+          <div class="agent-preview-card"><span class="agent-preview-dot" style="background:var(--buyer-2)"></span><div><div class="agent-preview-name">Pinnacle Goods</div><div class="agent-preview-role">buyer</div></div></div>
+          <div class="agent-preview-card"><span class="agent-preview-dot" style="background:var(--buyer-3)"></span><div><div class="agent-preview-name">Coastal Fabrication</div><div class="agent-preview-role">buyer</div></div></div>
+          <div class="agent-preview-card"><span class="agent-preview-dot" style="background:var(--buyer-4)"></span><div><div class="agent-preview-name">Northgate Systems</div><div class="agent-preview-role">buyer</div></div></div>
+        </div>
+      </div>
+    </div>
+
+    <p class="section-label">Select Protocol</p>
+    <div class="protocol-grid" id="protocolGrid">
+      <!-- populated from /api/protocols or fallback -->
+    </div>
+
+    <p class="section-label">Simulation Settings</p>
+    <div class="sim-settings">
+      <div class="input-group">
+        <label class="input-label">Days</label>
+        <input class="input-field" type="number" id="inputDays" value="60" min="10" max="365">
+      </div>
+      <div class="input-group">
+        <label class="input-label">Tick Speed (sec)</label>
+        <input class="input-field" type="number" id="inputSpeed" value="2" min="0.1" max="60" step="0.1">
+      </div>
+      <div class="input-group">
+        <label class="input-label">Model</label>
+        <input class="input-field" type="text" id="inputModel" value="claude-3-5-haiku-20241022" style="width:240px">
+      </div>
+      <button class="btn-run" id="btnRun">&#9654; Run Simulation</button>
+    </div>
+
+    <div class="prev-runs-section">
+      <p class="section-label">Previous Runs</p>
+      <div id="runsContainer"><div class="no-runs">Loading previous runs...</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ========================================== DASHBOARD ========== -->
+<div id="dashboard" class="hidden">
+
+  <!-- Top bar -->
+  <div class="topbar">
+    <span class="tb-brand">The Sanctuary</span>
+    <span class="tb-day">Day <strong id="tbDay">0</strong> <strong id="tbPhase" style="color:var(--accent)"></strong></span>
+    <span class="tb-protocol-pill" id="tbProtocol">--</span>
+    <span class="tb-stats" id="tbStats"></span>
+    <div class="tb-spacer"></div>
+
+    <!-- Live controls (hidden in replay mode) -->
+    <div id="liveControls" style="display:flex;align-items:center;gap:10px">
+      <div class="tb-speed-group">
+        <span>Speed</span>
+        <input class="tb-speed-input" type="number" id="tbSpeedInput" value="2" min="0.1" max="60" step="0.1">
+        <span>s</span>
+      </div>
+      <button class="tb-btn btn-pause" id="btnPause">&#9646;&#9646; Pause</button>
+      <button class="tb-btn btn-ff" id="btnFF">&#9889; Fast Fwd</button>
+    </div>
+
+    <!-- Replay controls (shown in replay mode) -->
+    <div id="replayControls" class="tb-scrubber-group hidden">
+      <span>Replay Day</span>
+      <input class="tb-scrubber" type="range" id="tbScrubber" min="1" max="60" value="1">
+      <span id="tbScrubberVal">1</span>
+    </div>
+
+    <button class="tb-btn btn-new" id="btnNew">&#8617; New Experiment</button>
+    <div class="ws-dot" id="wsDot" title="WebSocket"></div>
+  </div>
+
+  <!-- Progress bar -->
+  <div class="day-progress">
+    <div class="day-progress-fill" id="dayProgressFill" style="width:0%"></div>
+  </div>
+
+  <!-- Main layout -->
+  <div class="main-layout">
+
+    <!-- Activity feed -->
+    <div class="feed-col">
+      <div class="feed-header">
+        <div class="feed-title">Activity Feed</div>
+        <div class="feed-filters">
+          <button class="feed-filter active" data-filter="all">All</button>
+          <button class="feed-filter" data-filter="sale">Sales</button>
+          <button class="feed-filter" data-filter="private">Private</button>
+          <button class="feed-filter" data-filter="quality">Quality</button>
+        </div>
+      </div>
+      <div class="feed-list" id="feedList"></div>
+    </div>
+
+    <!-- Right column -->
+    <div class="right-col">
+
+      <!-- Agent cards -- two tiers -->
+      <div class="agents-section">
+        <div class="agents-tier">
+          <div class="agents-tier-label seller-tier-label">Sellers</div>
+          <div class="agent-row" id="sellerRow"></div>
+        </div>
+        <div class="agents-tier">
+          <div class="agents-tier-label buyer-tier-label">Buyers</div>
+          <div class="agent-row" id="buyerRow"></div>
+        </div>
+      </div>
+
+      <!-- Tabs + content -->
+      <div class="content-area">
+        <div class="tab-bar">
+          <button class="tab-btn active" data-tab="overview">Overview</button>
+          <button class="tab-btn" data-tab="analytics">Market Analytics</button>
+          <button class="tab-btn" data-tab="events">Events</button>
+          <button class="tab-btn" data-tab="transactions">Transactions</button>
+          <button class="tab-btn" data-tab="conversations">Conversations</button>
+        </div>
+        <div class="tab-panels" id="tabPanels">
+
+          <!-- Overview -->
+          <div id="tab-overview">
+            <div class="chart-card">
+              <div class="chart-title">Agent Balances Over Time</div>
+              <div class="chart-wrap" style="height:200px"><canvas id="chartBalances"></canvas></div>
+            </div>
+            <div class="chart-row">
+              <div class="chart-card" style="margin-bottom:0">
+                <div class="chart-title">Price per Unit Over Time (by quality)</div>
+                <div class="chart-wrap" style="height:160px"><canvas id="chartPrices"></canvas></div>
+              </div>
+              <div class="chart-card" style="margin-bottom:0">
+                <div class="chart-title">Misrepresentation Rate Over Time</div>
+                <div class="chart-wrap" style="height:160px"><canvas id="chartMisrep"></canvas></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Market Analytics -->
+          <div id="tab-analytics" class="hidden">
+            <div class="chart-row-3">
+              <div class="chart-card" style="margin-bottom:0">
+                <div class="chart-title">Collusion Detection Score</div>
+                <div class="chart-wrap" style="height:160px"><canvas id="chartCollusion"></canvas></div>
+              </div>
+              <div class="chart-card" style="margin-bottom:0">
+                <div class="chart-title">Information Accuracy %</div>
+                <div class="chart-wrap" style="height:160px"><canvas id="chartInfoAcc"></canvas></div>
+              </div>
+              <div class="chart-card" style="margin-bottom:0">
+                <div class="chart-title">Deal Quality Ratio</div>
+                <div class="chart-wrap" style="height:160px"><canvas id="chartDealQuality"></canvas></div>
+              </div>
+            </div>
+            <div class="chart-card">
+              <div class="chart-title">Active Listings</div>
+              <div id="listingsTableWrap"><div class="empty-state">No active listings.</div></div>
+            </div>
+          </div>
+
+          <!-- Events -->
+          <div id="tab-events" class="hidden">
+            <div class="chart-card">
+              <div id="eventsWrap"><div class="empty-state">No events yet.</div></div>
+            </div>
+          </div>
+
+          <!-- Transactions -->
+          <div id="tab-transactions" class="hidden">
+            <div class="chart-card">
+              <div id="txTableWrap"><div class="empty-state">No transactions yet.</div></div>
+            </div>
+          </div>
+
+          <!-- Conversations -- 28 pairs via dropdown -->
+          <div id="tab-conversations" class="hidden">
+            <div class="conv-filter-bar">
+              <span class="conv-filter-label">Conversation Pair:</span>
+              <select class="conv-filter-select" id="convPairSelect">
+                <option value="">-- Select a pair to view --</option>
+              </select>
+            </div>
+            <div id="convThreadWrap"><div class="empty-state">Select a conversation pair above to view their message thread.</div></div>
+          </div>
+
+        </div><!-- /tab-panels -->
+      </div><!-- /content-area -->
+
+    </div><!-- /right-col -->
+  </div><!-- /main-layout -->
+</div><!-- /dashboard -->
+
+<!-- ========== Agent detail modal ========== -->
+<div class="modal-overlay hidden" id="agentModal">
+  <div class="modal-box" style="max-width:760px">
+    <div class="modal-header">
+      <div class="agent-dot" id="modalAgentDot" style="width:12px;height:12px;border-radius:50%"></div>
+      <div class="modal-title" id="modalAgentTitle">Agent</div>
+      <button class="modal-close" id="modalAgentClose">&#10005;</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-tabs">
+        <button class="modal-tab active" data-atab="tactical">Tactical Decisions</button>
+        <button class="modal-tab" data-atab="strategic">CEO Strategic Reviews</button>
+      </div>
+      <div id="agentModalContent"><div class="empty-state">Loading...</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ========== End of run modal ========== -->
+<div class="modal-overlay hidden" id="eorModal">
+  <div class="modal-box" style="max-width:620px">
+    <div class="modal-header">
+      <div class="modal-title">Simulation Complete</div>
+      <button class="modal-close" id="eorClose">&#10005;</button>
+    </div>
+    <div class="modal-body" id="eorBody"></div>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   AGENT CATALOG -- 4 sellers (warm), 4 buyers (cool)
+============================================================ */
+const AGENT_COLORS = {
+  // Sellers -- warm tones
+  meridian_manufacturing:  '#c0622a',
+  aldridge_industrial:     '#b84a2e',
+  crestline_components:    '#d4882a',
+  vector_works:            '#a85c3a',
+
+  // Buyers -- cool tones
+  halcyon_assembly:   '#3a6fb8',
+  pinnacle_goods:     '#2a8fa0',
+  coastal_fabrication:'#7c5fb0',
+  northgate_systems:  '#2e7a6c',
+};
+
+// Short display names for agent IDs
+const AGENT_SHORT = {
+  meridian_manufacturing:  'Meridian Mfg',
+  aldridge_industrial:     'Aldridge Ind.',
+  crestline_components:    'Crestline Co.',
+  vector_works:            'Vector Works',
+  halcyon_assembly:        'Halcyon Asm.',
+  pinnacle_goods:          'Pinnacle Goods',
+  coastal_fabrication:     'Coastal Fab.',
+  northgate_systems:       'Northgate Sys.',
+};
+
+function agentColor(id) {
+  if (!id) return '#9a8f7e';
+  const k = id.toLowerCase().replace(/\s+/g, '_');
+  return AGENT_COLORS[k] || '#9a8f7e';
+}
+
+function agentShort(id, name) {
+  if (!id) return name || '?';
+  const k = id.toLowerCase().replace(/\s+/g, '_');
+  return AGENT_SHORT[k] || name || id;
+}
+
+/* ============================================================
+   STATE
+============================================================ */
+let state = {
+  day: 0, phase: '', max_days: 60, protocol: 'none',
+  paused: false, completed: false, fast_forward: false,
+  speed: 2, replay_mode: false,
+  agents: {}, active_listings: [], recent_transactions: [],
+  recent_messages: [], story_beats: [], narratives: [],
+  analytics: { collusion_series:[], info_accuracy_series:[], deal_quality_series:[] },
+  stats: { total_transactions:0, misrepresentation_rate:0, active_listings_count:0 },
+  summary: null,
+};
+
+let ws = null;
+let wsConnected = false;
+let feedFilter = 'all';
+let activeTab = 'overview';
+let activeAgentTab = 'tactical';
+let currentAgentId = null;
+let currentAgentData = null;
+let charts = {};
+let balanceHistory = {};
+let misrepHistory = [];
+let priceHistory = {};
+let selectedConvPair = '';
+
+/* ============================================================
+   PROTOCOL SELECTION (fetched from /api/protocols)
+============================================================ */
+const FALLBACK_PROTOCOLS = [
+  { id: 'none', emoji: '&#127964;', name: 'No Protocol (Baseline)', tagline: 'Pure free market. No reputation, no auditing, no oversight.', desc: 'Pure free market. Component quality unknown until 5 days after delivery. No oversight.' },
+  { id: 'centralized_reputation', emoji: '&#127978;', name: 'Centralized Reputation', tagline: 'A central authority scores every seller 0-100 based on history.', desc: 'Central authority tracks each seller\'s quality accuracy and publishes reliability scores (0-100).' },
+  { id: 'peer_ratings', emoji: '&#11088;', name: 'Peer Ratings', tagline: 'Buyers rate sellers 1-5 stars after every transaction, fully public.', desc: 'Buyers rate sellers 1-5 stars after quality is revealed. All ratings public.' },
+  { id: 'anonymity', emoji: '&#127917;', name: 'Anonymity', tagline: 'Agents cannot identify each other. No private messages.', desc: 'Agents cannot identify each other. No private messaging or forum access.' },
+  { id: 'mandatory_audit', emoji: '&#9878;&#65039;', name: 'Mandatory Audit', tagline: '25% of transactions randomly audited. Misrepresentation fined 25%.', desc: '25% of transactions randomly audited. Misrepresentation triggers 25% penalty on transaction value.' },
+  { id: 'custom', emoji: '&#9999;&#65039;', name: 'Custom Protocol', tagline: 'Define your own rules. Describe any market mechanism.', desc: 'Define your own rules for the component market.', custom: true },
+];
+
+let selectedProtocol = 'none';
+
+async function loadProtocols() {
+  let protocols = FALLBACK_PROTOCOLS;
+  try {
+    const res = await fetch('/api/protocols');
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data) && data.length > 0) protocols = data;
+    }
+  } catch(e) {}
+  renderProtocolGrid(protocols);
+}
+
+function renderProtocolGrid(protocols) {
+  const grid = document.getElementById('protocolGrid');
+  grid.innerHTML = protocols.map((p, idx) => {
+    const isFirst = idx === 0;
+    const customTA = p.custom
+      ? `<textarea class="custom-textarea" id="customDesc" placeholder="Describe your custom market rules..." rows="3"></textarea>`
+      : '';
+    return `<div class="protocol-card${isFirst ? ' selected' : ''}" data-protocol="${escHtml(p.id || p.key || 'none')}">
+      <div class="protocol-check"><svg viewBox="0 0 12 12"><polyline points="2,6 5,9 10,3"/></svg></div>
+      <span class="protocol-emoji">${p.emoji || '&#9634;'}</span>
+      <div class="protocol-name">${escHtml(p.name)}</div>
+      <div class="protocol-tagline">${escHtml(p.tagline || p.description || '')}</div>
+      <div class="protocol-desc">${escHtml(p.desc || p.description || '')}</div>
+      ${customTA}
+    </div>`;
+  }).join('');
+
+  // Bind click handlers
+  grid.querySelectorAll('.protocol-card').forEach(card => {
+    card.addEventListener('click', () => {
+      grid.querySelectorAll('.protocol-card').forEach(c => c.classList.remove('selected'));
+      card.classList.add('selected');
+      selectedProtocol = card.dataset.protocol;
+    });
+  });
+
+  selectedProtocol = protocols[0]?.id || protocols[0]?.key || 'none';
+}
+
+/* ============================================================
+   STARTUP
+============================================================ */
+async function init() {
+  loadProtocols();
+  loadRuns();
+  try {
+    const res = await fetch('/api/state');
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.day > 0 && !data.error) {
+        applyState(data);
+        showDashboard();
+        connectWS();
+        return;
+      }
+    }
+  } catch(e) {}
+  showWelcome();
+}
+
+function showWelcome() {
+  document.getElementById('welcome').classList.remove('hidden');
+  document.getElementById('dashboard').classList.add('hidden');
+}
+
+function showDashboard() {
+  document.getElementById('welcome').classList.add('hidden');
+  document.getElementById('dashboard').classList.remove('hidden');
+}
+
+/* ============================================================
+   PREVIOUS RUNS
+============================================================ */
+async function loadRuns() {
+  const container = document.getElementById('runsContainer');
+  try {
+    const res = await fetch('/api/runs');
+    if (!res.ok) throw new Error();
+    const data = await res.json();
+    const runs = data.runs || data || [];
+    if (!runs || runs.length === 0) {
+      container.innerHTML = '<div class="no-runs">No previous runs found.</div>';
+      return;
+    }
+    let html = `<table class="runs-table"><thead><tr>
+      <th>Protocol</th><th>Days</th><th>Transactions</th><th>Misrep Rate</th><th>Health</th><th>Date</th>
+    </tr></thead><tbody>`;
+    for (const r of runs) {
+      const proto = r.protocol || 'none';
+      const misrep = r.misrepresentation_rate != null ? (r.misrepresentation_rate * 100).toFixed(1) + '%' : '--';
+      const date = r.completed_at ? new Date(r.completed_at).toLocaleDateString() : '--';
+      const health = r.market_health_score != null ? r.market_health_score : '--';
+      html += `<tr style="cursor:pointer" data-run-id="${escHtml(r.run_id || '')}" class="run-row">
+        <td><span class="protocol-pill">${escHtml(proto)}</span></td>
+        <td>${r.final_day ?? '--'}</td>
+        <td>${r.total_transactions ?? '--'}</td>
+        <td>${misrep}</td>
+        <td>${health}</td>
+        <td>${date}</td>
+      </tr>`;
+    }
+    html += '</tbody></table>';
+    container.innerHTML = html;
+    container.querySelectorAll('.run-row').forEach(row => {
+      row.addEventListener('click', () => loadRunDetail(row.dataset.runId));
+    });
+  } catch(e) {
+    container.innerHTML = '<div class="no-runs">Could not load previous runs.</div>';
+  }
+}
+
+async function loadRunDetail(runId) {
+  if (!runId) return;
+  try {
+    const res = await fetch(`/api/runs/${runId}`);
+    if (!res.ok) throw new Error('Not found');
+    const data = await res.json();
+    const summary = data.summary || {};
+    const health = summary.market_health || {};
+    const manip = summary.manipulation_counts || {};
+    const narrative = summary.final_narrative || '';
+
+    const grade = health.grade || '--';
+    const score = health.score != null ? health.score : '--';
+    const subScores = health.sub_scores || {};
+
+    let html = `<div class="eor-grade">${grade}</div>
+      <div class="eor-score">Market Health: ${score}/100 &middot; Protocol: ${escHtml(summary.protocol || '?')} &middot; ${summary.final_day ?? '?'} days</div>`;
+
+    if (narrative) {
+      html += `<div class="chart-card" style="margin-bottom:16px;background:#f8f5f0">
+        <div class="chart-title">Final Analysis</div>
+        <div style="font-size:13px;color:var(--text-sec);line-height:1.65;white-space:pre-wrap">${escHtml(narrative)}</div>
+      </div>`;
+    }
+
+    const subHTML = Object.entries(subScores).map(([k, v]) =>
+      `<div class="eor-sub"><div class="eor-sub-val">${typeof v === 'number' ? v.toFixed(0) : v}</div><div class="eor-sub-name">${escHtml(k.replace(/_/g,' '))}</div></div>`
+    ).join('');
+    if (subHTML) html += `<div class="eor-sub-scores">${subHTML}</div>`;
+
+    const manipHTML = Object.entries(manip).filter(([,v]) => v > 0)
+      .map(([k, v]) => `<span class="manip-badge">${escHtml(k.replace(/_/g,' '))}: ${v}</span>`).join('');
+    if (manipHTML) html += `<div style="margin-bottom:16px"><p class="section-label" style="margin-bottom:8px">Strategic Manipulation</p><div class="manip-grid">${manipHTML}</div></div>`;
+
+    const agentResults = summary.agent_results || {};
+    const sellers = Object.values(agentResults).filter(a => a.role === 'seller').sort((a,b) => (b.net_profit||b.profit||0)-(a.net_profit||a.profit||0));
+    const buyers  = Object.values(agentResults).filter(a => a.role === 'buyer').sort((a,b) => (b.balance||0)-(a.balance||0));
+
+    if (sellers.length) {
+      html += `<p class="section-label" style="margin-bottom:6px;margin-top:4px">Sellers</p>
+        <table class="standings-table" style="margin-bottom:12px"><thead><tr><th>#</th><th>Seller</th><th>Net Profit</th><th>Cash</th><th>Honest%</th></tr></thead><tbody>`;
+      sellers.forEach((a,i) => {
+        const profit = a.net_profit ?? a.profit ?? 0;
+        const col = agentColor(a.id||a.name);
+        html += `<tr><td>${i+1}</td><td style="color:${col};font-weight:600">${escHtml(a.name)}</td><td class="${profit>=0?'text-green':'text-red'} fw600">${profit>=0?'+':''}${fmt$(profit)}</td><td>${fmt$(a.balance)}</td><td>${Math.round((a.quality_accuracy||1)*100)}%</td></tr>`;
+      });
+      html += `</tbody></table>`;
+    }
+    if (buyers.length) {
+      html += `<p class="section-label" style="margin-bottom:6px">Buyers</p>
+        <table class="standings-table"><thead><tr><th>#</th><th>Buyer</th><th>Cash</th><th>Quota</th><th>Penalties</th></tr></thead><tbody>`;
+      buyers.forEach((a,i) => {
+        const col = agentColor(a.id||a.name);
+        const pct = Math.round(((a.acquired||0)/(a.quota||20))*100);
+        html += `<tr><td>${i+1}</td><td style="color:${col};font-weight:600">${escHtml(a.name)}</td><td>${fmt$(a.balance)}</td><td class="${pct>=100?'text-green':'text-amber'} fw600">${a.acquired||0}/20 (${pct}%)</td><td>${fmt$(a.total_penalties||0)}</td></tr>`;
+      });
+      html += `</tbody></table>`;
+    }
+
+    document.getElementById('eorBody').innerHTML = html;
+    eorShown = false;
+    document.getElementById('eorModal').classList.remove('hidden');
+  } catch(e) {
+    alert('Could not load run: ' + e.message);
+  }
+}
+
+/* ============================================================
+   RUN BUTTON
+============================================================ */
+document.getElementById('btnRun').addEventListener('click', async () => {
+  const btn = document.getElementById('btnRun');
+  btn.disabled = true;
+  btn.textContent = 'Starting...';
+
+  const protocol = selectedProtocol;
+  const max_days = parseInt(document.getElementById('inputDays').value) || 60;
+  const speed = parseFloat(document.getElementById('inputSpeed').value) || 2;
+  const customTA = document.getElementById('customDesc');
+  const custom_description = customTA ? customTA.value.trim() : '';
+  const model_name = document.getElementById('inputModel').value.trim();
+
+  try {
+    const res = await fetch('/api/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ protocol, max_days, speed, custom_description, model_name }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    showDashboard();
+    connectWS();
+  } catch(e) {
+    alert('Failed to start simulation: ' + e.message);
+    btn.disabled = false;
+    btn.textContent = '\u25B6 Run Simulation';
+  }
+});
+
+/* ============================================================
+   WEBSOCKET
+============================================================ */
+function connectWS() {
+  if (ws) { try { ws.close(); } catch(e) {} }
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const url = `${proto}//${location.host}/ws`;
+  ws = new WebSocket(url);
+
+  ws.onopen = () => {
+    wsConnected = true;
+    document.getElementById('wsDot').className = 'ws-dot connected';
+  };
+
+  ws.onclose = () => {
+    wsConnected = false;
+    document.getElementById('wsDot').className = 'ws-dot error';
+    setTimeout(() => {
+      if (!document.getElementById('dashboard').classList.contains('hidden')) connectWS();
+    }, 3000);
+  };
+
+  ws.onerror = () => {
+    document.getElementById('wsDot').className = 'ws-dot error';
+  };
+
+  ws.onmessage = (evt) => {
+    let msg;
+    try { msg = JSON.parse(evt.data); } catch(e) { return; }
+
+    if (msg.type === 'started' || msg.type === 'restarted') {
+      location.reload();
+      return;
+    }
+
+    if (msg.type === 'agent_detail') {
+      handleAgentDetail(msg);
+      return;
+    }
+
+    if (msg.type === 'init' || msg.type === 'tick' || msg.type === 'state') {
+      applyState(msg);
+      renderDashboard();
+    }
+
+    if (msg.type === 'narrative' && msg.narrative) {
+      if (!state.narratives) state.narratives = [];
+      if (!state.narratives.find(n => n.day === msg.narrative.day)) {
+        state.narratives.push(msg.narrative);
+      }
+      renderDashboard();
+    }
+  };
+}
+
+function wsSend(obj) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(obj));
+  }
+}
+
+// Polling fallback
+setInterval(async () => {
+  if (document.getElementById('dashboard').classList.contains('hidden')) return;
+  try {
+    const r = await fetch('/api/state');
+    if (!r.ok) return;
+    const data = await r.json();
+    if (data && data.day !== undefined) {
+      applyState(data);
+      renderDashboard();
+    }
+  } catch(e) {}
+}, 4000);
+
+/* ============================================================
+   STATE APPLY
+============================================================ */
+function applyState(data) {
+  if (data.day !== undefined) state.day = data.day;
+  if (data.phase !== undefined) state.phase = data.phase;
+  if (data.max_days !== undefined) state.max_days = data.max_days;
+  if (data.protocol !== undefined) state.protocol = data.protocol;
+  if (data.paused !== undefined) state.paused = data.paused;
+  if (data.completed !== undefined) state.completed = data.completed;
+  if (data.fast_forward !== undefined) state.fast_forward = data.fast_forward;
+  if (data.speed !== undefined) state.speed = data.speed;
+  if (data.replay_mode !== undefined) state.replay_mode = data.replay_mode;
+  if (data.agents) state.agents = data.agents;
+  if (data.active_listings) state.active_listings = data.active_listings;
+  if (data.recent_transactions) state.recent_transactions = data.recent_transactions;
+  if (data.recent_messages) state.recent_messages = data.recent_messages;
+  if (data.story_beats) state.story_beats = data.story_beats;
+  if (data.narratives) state.narratives = data.narratives;
+  if (data.analytics) state.analytics = data.analytics;
+  if (data.stats) state.stats = data.stats;
+  if (data.summary) state.summary = data.summary;
+
+  if (state.day > 0) {
+    for (const [id, agent] of Object.entries(state.agents || {})) {
+      if (!balanceHistory[id]) balanceHistory[id] = [];
+
+      const serverHistory = agent.balance_history || [];
+      if (serverHistory.length > balanceHistory[id].length) {
+        const existing = new Map(balanceHistory[id].map(h => [h.day, h.balance]));
+        for (const h of serverHistory) existing.set(h.day, h.balance);
+        balanceHistory[id] = [...existing.entries()].sort((a,b) => a[0]-b[0]).map(([day,balance]) => ({day,balance}));
+      } else {
+        const last = balanceHistory[id][balanceHistory[id].length - 1];
+        if (!last || last.day !== state.day) {
+          balanceHistory[id].push({ day: state.day, balance: agent.balance });
+        }
+      }
+    }
+
+    const mr = state.stats?.misrepresentation_rate ?? 0;
+    const lastMr = misrepHistory[misrepHistory.length - 1];
+    if (!lastMr || lastMr.day !== state.day) {
+      misrepHistory.push({ day: state.day, rate: mr });
+    }
+
+    const misrepSeries = state.analytics?.misrep_series || [];
+    if (misrepSeries.length > misrepHistory.length) {
+      const existing = new Map(misrepHistory.map(h => [h.day, h.rate]));
+      for (const h of misrepSeries) existing.set(h.day, h.rate ?? h.value ?? 0);
+      misrepHistory = [...existing.entries()].sort((a,b) => a[0]-b[0]).map(([day,rate]) => ({day,rate}));
+    }
+
+    for (const tx of (state.recent_transactions || [])) {
+      const day = tx.day;
+      const q = tx.claimed_quality;
+      const ppu = tx.price_per_unit ?? tx.price;
+      if (day == null || !q || ppu == null) continue;
+      if (!priceHistory[day]) priceHistory[day] = {};
+      if (!priceHistory[day][q]) priceHistory[day][q] = [];
+      const key = (tx.widget_ids || []).join(',') || `${day}-${q}-${ppu}`;
+      if (!priceHistory[day]._seen) priceHistory[day]._seen = new Set();
+      if (!priceHistory[day]._seen.has(key)) {
+        priceHistory[day]._seen.add(key);
+        priceHistory[day][q].push(ppu);
+      }
+    }
+
+    for (const entry of (state.analytics?.price_series || [])) {
+      if (!priceHistory[entry.day]) priceHistory[entry.day] = {};
+      if (entry.excellent != null) priceHistory[entry.day]._ex_server = entry.excellent;
+      if (entry.poor != null) priceHistory[entry.day]._po_server = entry.poor;
+    }
+  }
+}
+
+/* ============================================================
+   RENDER DASHBOARD
+============================================================ */
+function renderDashboard() {
+  renderTopbar();
+  renderAgents();
+  renderFeed();
+  renderActiveTab();
+  if (state.completed && state.summary) showEorModal();
+}
+
+/* -- Topbar -- */
+function renderTopbar() {
+  document.getElementById('tbDay').textContent = state.day;
+  document.getElementById('tbPhase').textContent = state.phase || '';
+  document.getElementById('tbProtocol').textContent = state.protocol || 'none';
+
+  const stats = state.stats || {};
+  const mr = stats.misrepresentation_rate != null ? (stats.misrepresentation_rate * 100).toFixed(0) + '% misrep' : '';
+  const tx = stats.total_transactions != null ? stats.total_transactions + ' deals' : '';
+  document.getElementById('tbStats').textContent = [tx, mr].filter(Boolean).join(' \u00B7 ');
+
+  const max = state.max_days || 60;
+  const pct = Math.min(100, (state.day / max) * 100);
+  document.getElementById('dayProgressFill').style.width = pct + '%';
+
+  // Replay vs live controls
+  const liveEl = document.getElementById('liveControls');
+  const replayEl = document.getElementById('replayControls');
+
+  if (state.replay_mode) {
+    liveEl.classList.add('hidden');
+    replayEl.classList.remove('hidden');
+    const scrubber = document.getElementById('tbScrubber');
+    scrubber.max = state.max_days || 60;
+    scrubber.value = state.day;
+    document.getElementById('tbScrubberVal').textContent = state.day;
+  } else {
+    liveEl.classList.remove('hidden');
+    replayEl.classList.add('hidden');
+
+    const btnPause = document.getElementById('btnPause');
+    if (state.paused) {
+      btnPause.innerHTML = '&#9654; Resume';
+    } else {
+      btnPause.innerHTML = '&#9646;&#9646; Pause';
+    }
+
+    const btnFF = document.getElementById('btnFF');
+    btnFF.classList.toggle('active', !!state.fast_forward);
+
+    const speedInput = document.getElementById('tbSpeedInput');
+    if (document.activeElement !== speedInput && state.speed !== undefined) {
+      speedInput.value = state.speed;
+    }
+  }
+}
+
+/* -- Agent cards -- */
+function renderAgents() {
+  const agents = state.agents || {};
+  const sellers = Object.values(agents).filter(a => a.role === 'seller');
+  const buyers  = Object.values(agents).filter(a => a.role === 'buyer');
+
+  document.getElementById('sellerRow').innerHTML = sellers.map(a => agentCardHTML(a, 'seller')).join('');
+  document.getElementById('buyerRow').innerHTML  = buyers.map(a => agentCardHTML(a, 'buyer')).join('');
+
+  document.querySelectorAll('.agent-card').forEach(card => {
+    card.addEventListener('click', () => openAgentModal(card.dataset.agentId));
+  });
+}
+
+function agentCardHTML(agent, role) {
+  const id = agent.id || agent.name;
+  const color = agentColor(id);
+  const shortName = agentShort(id, agent.name);
+
+  if (role === 'seller') {
+    const accuracyPct = Math.round((agent.quality_accuracy || 1) * 100);
+    const profit = agent.net_profit ?? agent.profit ?? 0;
+    const profitColor = profit >= 0 ? 'var(--green)' : 'var(--red)';
+    const factories = agent.factories || 1;
+    const inventory = agent.inventory_count || 0;
+    // Bar shows profit health
+    const barPct = Math.min(100, Math.max(0, 50 + profit / 100));
+
+    return `<div class="agent-card" data-agent-id="${escHtml(id)}" style="border-top-color:${color}">
+      <div class="agent-card-top">
+        <div class="agent-name-row">
+          <span class="agent-dot" style="background:${color}"></span>
+          <span class="agent-name" title="${escHtml(agent.name)}">${escHtml(shortName)}</span>
+        </div>
+        <span class="agent-role-tag">${factories}F</span>
+      </div>
+      <div class="agent-balance">${fmt$(agent.balance)}</div>
+      <div class="agent-stats-row">inv ${inventory} &middot; ${accuracyPct}% honest</div>
+      <div class="agent-bar-wrap"><div class="agent-bar-fill" style="background:${color};width:${barPct}%"></div></div>
+      <div class="agent-status" style="color:${profitColor}">${profit >= 0 ? '+' : ''}${fmt$(profit)} profit</div>
+    </div>`;
+  } else {
+    const quota = agent.quota || 20;
+    const acquired = agent.acquired || 0;
+    const pct = Math.min(100, Math.round((acquired / quota) * 100));
+    const quotaColor = pct >= 100 ? 'var(--green)' : pct >= 50 ? 'var(--amber)' : 'var(--red)';
+    const penalties = agent.total_penalties || 0;
+
+    return `<div class="agent-card" data-agent-id="${escHtml(id)}" style="border-top-color:${color}">
+      <div class="agent-card-top">
+        <div class="agent-name-row">
+          <span class="agent-dot" style="background:${color}"></span>
+          <span class="agent-name" title="${escHtml(agent.name)}">${escHtml(shortName)}</span>
+        </div>
+        <span class="agent-role-tag">${pct}%</span>
+      </div>
+      <div class="agent-balance">${fmt$(agent.balance)}</div>
+      <div class="agent-stats-row">${acquired}/20 quota &middot; ${fmt$(penalties)} pen.</div>
+      <div class="quota-bar-wrap"><div class="quota-bar-fill" style="background:${color};width:${pct}%"></div></div>
+      <div class="agent-status" style="color:${quotaColor}">${pct >= 100 ? 'quota met' : acquired + ' of 20'}</div>
+    </div>`;
+  }
+}
+
+/* -- Activity feed -- */
+function renderFeed() {
+  const msgs = state.recent_messages || [];
+  const list = document.getElementById('feedList');
+  const wasAtBottom = list.scrollHeight - list.scrollTop <= list.clientHeight + 40;
+
+  const filtered = msgs.filter(m => {
+    if (feedFilter === 'all') return true;
+    const ch = (m.channel || '').toLowerCase();
+    const body = (m.body || m.content || '').toUpperCase();
+    const isSale    = ch === 'sale'    || body.startsWith('TRANSACTION:');
+    const isQuality = ch === 'quality' || body.startsWith('QUALITY REVEALED');
+    const isPrivate = ch === 'private' || (!m.is_public && m.sender_id !== 'system');
+    if (feedFilter === 'sale')    return isSale;
+    if (feedFilter === 'quality') return isQuality;
+    if (feedFilter === 'private') return isPrivate;
+    return true;
+  });
+
+  list.innerHTML = filtered.map(feedItemHTML).join('');
+  if (wasAtBottom) list.scrollTop = list.scrollHeight;
+}
+
+function feedItemHTML(msg) {
+  const ch = (msg.channel || '').toLowerCase();
+  let badgeClass = 'badge-sys';
+  let badgeLabel = 'SYS';
+
+  const bodyUp = (msg.body || msg.content || '').toUpperCase();
+  const isPrivateMsg = ch === 'private' || (!msg.is_public && msg.sender_id !== 'system');
+  const isSaleMsg    = ch === 'sale'    || bodyUp.startsWith('TRANSACTION:');
+  const isQualityMsg = ch === 'quality' || bodyUp.startsWith('QUALITY REVEALED');
+
+  if (isPrivateMsg)  { badgeClass = 'badge-private'; badgeLabel = 'PRIVATE'; }
+  else if (isSaleMsg)    { badgeClass = 'badge-sale';    badgeLabel = 'SALE'; }
+  else if (isQualityMsg) { badgeClass = 'badge-quality'; badgeLabel = 'QUALITY'; }
+  else if (ch === 'offer' || ch === 'market') { badgeClass = 'badge-offer'; badgeLabel = 'OFFER'; }
+  else if (ch === 'forum' || ch === 'broadcast') { badgeClass = 'badge-market'; badgeLabel = 'MARKET'; }
+
+  const dayLabel = msg.day ? `Day ${msg.day}${msg.phase_name ? ' ' + msg.phase_name : ''}` : '';
+  const body = msg.body || msg.content || '';
+
+  let dirLabel = '';
+  if (msg.sender_name && msg.sender_name !== 'Market' && msg.sender_name !== 'System') {
+    const to = msg.recipient_id && msg.recipient_id !== 'public_forum' ? msg.recipient_id : null;
+    dirLabel = to
+      ? `<span style="font-size:10px;color:var(--text-muted)">${escHtml(msg.sender_name)} &rarr; ${escHtml(to)}</span>`
+      : `<span style="font-size:10px;color:var(--text-muted)">${escHtml(msg.sender_name)}</span>`;
+  }
+
+  return `<div class="feed-item">
+    <div class="feed-item-top">
+      <span class="feed-badge ${badgeClass}">${badgeLabel}</span>
+      <span class="feed-day">${escHtml(dayLabel)}</span>
+      ${dirLabel}
+    </div>
+    <div class="feed-body">${escHtml(body)}</div>
+  </div>`;
+}
+
+/* -- Feed filter buttons -- */
+document.querySelectorAll('.feed-filter').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.feed-filter').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    feedFilter = btn.dataset.filter;
+    renderFeed();
+  });
+});
+
+/* -- Tabs -- */
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    activeTab = btn.dataset.tab;
+    ['overview','analytics','events','transactions','conversations'].forEach(t => {
+      const el = document.getElementById('tab-' + t);
+      if (el) el.classList.toggle('hidden', t !== activeTab);
+    });
+    renderActiveTab();
+  });
+});
+
+function renderActiveTab() {
+  if (activeTab === 'overview') renderOverviewTab();
+  else if (activeTab === 'analytics') renderAnalyticsTab();
+  else if (activeTab === 'events') renderEventsTab();
+  else if (activeTab === 'transactions') renderTransactionsTab();
+  else if (activeTab === 'conversations') renderConversationsTab();
+}
+
+/* -- Overview tab -- */
+function renderOverviewTab() {
+  renderBalancesChart();
+  renderPricesChart();
+  renderMisrepChart();
+}
+
+function renderBalancesChart() {
+  const ctx = document.getElementById('chartBalances');
+  if (!ctx) return;
+  const agents = Object.values(state.agents || {});
+  if (!agents.length) return;
+
+  const datasets = agents.map(agent => {
+    const id = agent.id || agent.name;
+    const hist = balanceHistory[id] || [];
+    return {
+      label: agentShort(id, agent.name),
+      data: hist.map(h => ({ x: h.day, y: h.balance })),
+      borderColor: agentColor(id),
+      backgroundColor: 'transparent',
+      borderWidth: 2,
+      pointRadius: 0,
+      tension: 0.3,
+    };
+  });
+
+  if (charts.balances) {
+    charts.balances.data.datasets = datasets;
+    charts.balances.update('none');
+  } else {
+    charts.balances = new Chart(ctx, {
+      type: 'line',
+      data: { datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        animation: false,
+        plugins: {
+          legend: {
+            position: 'bottom',
+            labels: {
+              boxWidth: 10, font: { size: 10 },
+              generateLabels: (chart) => {
+                return chart.data.datasets.map((ds, i) => ({
+                  text: ds.label,
+                  fillStyle: ds.borderColor,
+                  strokeStyle: ds.borderColor,
+                  lineWidth: 2,
+                  datasetIndex: i,
+                  hidden: !chart.isDatasetVisible(i),
+                }));
+              }
+            }
+          }
+        },
+        scales: {
+          x: { type: 'linear', grid: { color: '#f0ece5' }, ticks: { font: { size: 10 } } },
+          y: { grid: { color: '#f0ece5' }, ticks: { font: { size: 10 }, callback: v => '$' + v } },
+        },
+      },
+    });
+  }
+}
+
+function renderPricesChart() {
+  const ctx = document.getElementById('chartPrices');
+  if (!ctx) return;
+
+  const excellentData = [], poorData = [];
+  for (const [dayStr, entry] of Object.entries(priceHistory).sort((a,b) => +a[0] - +b[0])) {
+    const day = +dayStr;
+    if (entry._ex_server != null) {
+      excellentData.push({ x: day, y: entry._ex_server });
+    } else if (entry.excellent && entry.excellent.length) {
+      excellentData.push({ x: day, y: +(entry.excellent.reduce((a,b)=>a+b,0)/entry.excellent.length).toFixed(2) });
+    }
+    if (entry._po_server != null) {
+      poorData.push({ x: day, y: entry._po_server });
+    } else if (entry.poor && entry.poor.length) {
+      poorData.push({ x: day, y: +(entry.poor.reduce((a,b)=>a+b,0)/entry.poor.length).toFixed(2) });
+    }
+  }
+
+  if (charts.prices) {
+    charts.prices.data.datasets[0].data = excellentData;
+    charts.prices.data.datasets[1].data = poorData;
+    charts.prices.update('none');
+  } else {
+    charts.prices = new Chart(ctx, {
+      type: 'line',
+      data: {
+        datasets: [
+          { label: 'Excellent', data: excellentData, borderColor: '#c0622a', backgroundColor: '#c0622a22', pointRadius: 2, tension: 0.3, fill: false },
+          { label: 'Poor', data: poorData, borderColor: '#3a6fb8', backgroundColor: '#3a6fb822', pointRadius: 2, tension: 0.3, fill: false },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        animation: false,
+        plugins: { legend: { display: true, labels: { font: { size: 10 }, boxWidth: 10 } } },
+        scales: {
+          x: { type: 'linear', grid: { display: false }, ticks: { font: { size: 10 }, callback: v => 'D' + v } },
+          y: { grid: { color: '#f0ece5' }, ticks: { font: { size: 10 }, callback: v => '$' + v } },
+        },
+      },
+    });
+  }
+}
+
+function renderMisrepChart() {
+  const ctx = document.getElementById('chartMisrep');
+  if (!ctx) return;
+  const hist = misrepHistory;
+
+  if (charts.misrep) {
+    charts.misrep.data.datasets[0].data = hist.map(h => ({ x: h.day, y: +(h.rate * 100).toFixed(1) }));
+    charts.misrep.update('none');
+  } else {
+    charts.misrep = new Chart(ctx, {
+      type: 'line',
+      data: {
+        datasets: [{
+          label: 'Misrep %',
+          data: hist.map(h => ({ x: h.day, y: +(h.rate * 100).toFixed(1) })),
+          borderColor: '#e05252',
+          backgroundColor: 'rgba(224,82,82,0.08)',
+          fill: true, borderWidth: 2, pointRadius: 0, tension: 0.3,
+        }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        animation: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { type: 'linear', grid: { color: '#f0ece5' }, ticks: { font: { size: 10 } } },
+          y: { min: 0, max: 100, grid: { color: '#f0ece5' }, ticks: { font: { size: 10 }, callback: v => v + '%' } },
+        },
+      },
+    });
+  }
+}
+
+/* -- Analytics tab -- */
+function renderAnalyticsTab() {
+  const analytics = state.analytics || {};
+  renderSeriesChart('chartCollusion',   analytics.collusion_series     || [], '#c0622a', 'Collusion Score');
+  renderSeriesChart('chartInfoAcc',     analytics.info_accuracy_series || [], '#2a8fa0', 'Accuracy %');
+  renderSeriesChart('chartDealQuality', analytics.deal_quality_series  || [], '#7c5fb0', 'Deal Quality');
+
+  const listings = state.active_listings || [];
+  const wrap = document.getElementById('listingsTableWrap');
+  if (!listings.length) { wrap.innerHTML = '<div class="empty-state">No active listings.</div>'; return; }
+  let html = `<table class="data-table"><thead><tr>
+    <th>Item</th><th>Seller</th><th>Price</th><th>Condition</th>
+  </tr></thead><tbody>`;
+  for (const l of listings) {
+    const sc = agentColor(l.seller_id);
+    html += `<tr>
+      <td>${escHtml(l.spec_summary || l.item || '--')}</td>
+      <td style="color:${sc};font-weight:600">${escHtml(l.seller_id || '--')}</td>
+      <td>${fmt$(l.price)}</td>
+      <td>${escHtml(l.listed_condition || '--')}</td>
+    </tr>`;
+  }
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
+}
+
+function renderSeriesChart(canvasId, series, color, label) {
+  const ctx = document.getElementById(canvasId);
+  if (!ctx) return;
+  const data = (series || []).map(p => ({ x: p.day, y: p.value }));
+
+  if (charts[canvasId]) {
+    charts[canvasId].data.datasets[0].data = data;
+    charts[canvasId].update('none');
+  } else {
+    charts[canvasId] = new Chart(ctx, {
+      type: 'line',
+      data: { datasets: [{ label, data, borderColor: color, backgroundColor: color + '18', fill: true, borderWidth: 2, pointRadius: 0, tension: 0.3 }] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        animation: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { type: 'linear', grid: { color: '#f0ece5' }, ticks: { font: { size: 10 } } },
+          y: { grid: { color: '#f0ece5' }, ticks: { font: { size: 10 } } },
+        },
+      },
+    });
+  }
+}
+
+/* -- Events tab -- */
+function renderEventsTab() {
+  const beats = state.story_beats || [];
+  const flagged = state.analytics?.flagged_events || [];
+  const wrap = document.getElementById('eventsWrap');
+  let html = '';
+
+  if (flagged.length) {
+    html += `<div style="margin-bottom:16px">
+      <p class="section-label" style="margin-bottom:8px">Flagged Events</p>`;
+    html += [...flagged].reverse().map(f => `
+      <div class="event-item">
+        <div class="event-day-badge" style="background:rgba(224,82,82,0.1);color:var(--red)">Day<br>${f.day ?? '?'}</div>
+        <div class="event-body">
+          <span class="misrep-badge" style="margin-right:6px">&#9888; ${escHtml(f.type || 'FLAG')}</span>
+          ${f.agent ? `<strong style="color:var(--text)">${escHtml(f.agent)}</strong> -- ` : ''}
+          ${escHtml(f.evidence || f.text || f.description || '')}
+          ${f.excerpt ? `<div style="margin-top:6px;padding:6px 8px;background:#f8f5f0;border-left:3px solid var(--red);font-size:11px;color:var(--text-sec);white-space:pre-wrap;max-height:80px;overflow-y:auto">${escHtml(f.excerpt)}</div>` : ''}
+        </div>
+      </div>`).join('');
+    html += `</div>`;
+  }
+
+  if (beats.length) {
+    html += `<p class="section-label" style="margin-bottom:8px">Story Beats</p>`;
+    html += [...beats].reverse().map(b => `
+      <div class="event-item">
+        <div class="event-day-badge">Day<br>${b.day ?? '?'}</div>
+        <div class="event-body">${escHtml(b.text || b.description || b.event || JSON.stringify(b))}</div>
+      </div>`).join('');
+  }
+
+  if (!html) html = '<div class="empty-state">No events yet.</div>';
+  wrap.innerHTML = html;
+}
+
+/* -- Transactions tab -- */
+function renderTransactionsTab() {
+  const txns = [...(state.recent_transactions || [])].reverse();
+  const wrap = document.getElementById('txTableWrap');
+  if (!txns.length) { wrap.innerHTML = '<div class="empty-state">No transactions yet.</div>'; return; }
+
+  let html = `<table class="data-table"><thead><tr>
+    <th>DAY</th><th>SELLER</th><th>BUYER</th><th>QTY</th>
+    <th>PRICE/UNIT</th><th>TOTAL</th><th>CLAIMED</th><th>REVEALED</th>
+  </tr></thead><tbody>`;
+
+  for (const tx of txns.slice(0, 50)) {
+    const seller = state.agents?.[tx.seller_id];
+    const buyer = state.agents?.[tx.buyer_id];
+    const sc = agentColor(tx.seller_id);
+    const bc = agentColor(tx.buyer_id);
+
+    let revealed = '';
+    if (tx.is_revealed) {
+      const mix = Object.entries(tx.true_quality_mix || {}).map(([k,v]) => `${v} ${k}`).join(', ');
+      revealed = tx.is_misrepresentation
+        ? `${escHtml(mix || '--')} <span class="misrep-badge">&#9888; MISREP</span>`
+        : escHtml(mix || '--');
+    } else {
+      revealed = `<span style="color:var(--text-muted)">Day ${tx.reveal_day || '?'}</span>`;
+    }
+
+    html += `<tr>
+      <td>${tx.day ?? '--'}</td>
+      <td style="color:${sc};font-weight:600">${escHtml(seller?.name || tx.seller_id || '--')}</td>
+      <td style="color:${bc};font-weight:600">${escHtml(buyer?.name || tx.buyer_id || '--')}</td>
+      <td>${tx.quantity ?? '--'}</td>
+      <td>${tx.price_per_unit != null ? '$' + tx.price_per_unit.toFixed(2) : fmt$(tx.price)}</td>
+      <td>${tx.total_price != null ? '$' + tx.total_price.toFixed(2) : '--'}</td>
+      <td>${escHtml(tx.claimed_quality || tx.spec_summary || '--')}</td>
+      <td>${revealed}</td>
+    </tr>`;
+  }
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
+}
+
+/* -- Conversations tab -- 28 possible pairs via dropdown -- */
+function renderConversationsTab() {
+  const agents = Object.values(state.agents || {});
+  const select = document.getElementById('convPairSelect');
+
+  if (agents.length < 2) {
+    select.innerHTML = '<option value="">No agents yet.</option>';
+    return;
+  }
+
+  // Build all pairs (C(8,2) = 28)
+  const pairs = [];
+  for (let i = 0; i < agents.length; i++) {
+    for (let j = i + 1; j < agents.length; j++) {
+      pairs.push([agents[i], agents[j]]);
+    }
+  }
+
+  // Rebuild options only if count changed or first time
+  const currentCount = select.options.length - 1; // minus placeholder
+  if (currentCount !== pairs.length) {
+    const prevVal = select.value;
+    select.innerHTML = '<option value="">-- Select a pair to view --</option>';
+    for (const [a, b] of pairs) {
+      const pairKey = [a.id, b.id].sort().join('|');
+      const msgCount = (state.recent_messages || []).filter(m =>
+        (m.sender_id === a.id && m.recipient_id === b.id) ||
+        (m.sender_id === b.id && m.recipient_id === a.id)
+      ).length;
+      const opt = document.createElement('option');
+      opt.value = pairKey;
+      opt.textContent = `${agentShort(a.id, a.name)} (${a.role}) -- ${agentShort(b.id, b.name)} (${b.role})  [${msgCount} msgs]`;
+      select.appendChild(opt);
+    }
+    if (prevVal) select.value = prevVal;
+    selectedConvPair = select.value;
+  } else {
+    // Just update message counts in option text
+    for (const opt of [...select.options].slice(1)) {
+      const parts = opt.value.split('|');
+      const cnt = (state.recent_messages || []).filter(m =>
+        (m.sender_id === parts[0] && m.recipient_id === parts[1]) ||
+        (m.sender_id === parts[1] && m.recipient_id === parts[0])
+      ).length;
+      // Update label only if count changed
+      const match = opt.textContent.match(/^(.*)\[\d+ msgs\]$/);
+      if (match) opt.textContent = match[1] + `[${cnt} msgs]`;
+    }
+  }
+
+  if (selectedConvPair) {
+    const parts = selectedConvPair.split('|');
+    renderConvThread(parts[0], parts[1]);
+  }
+}
+
+// Bind select change
+document.getElementById('convPairSelect').addEventListener('change', (e) => {
+  selectedConvPair = e.target.value;
+  if (selectedConvPair) {
+    const parts = selectedConvPair.split('|');
+    renderConvThread(parts[0], parts[1]);
+  } else {
+    document.getElementById('convThreadWrap').innerHTML = '<div class="empty-state">Select a conversation pair above to view their message thread.</div>';
+  }
+});
+
+async function renderConvThread(idA, idB) {
+  const wrap = document.getElementById('convThreadWrap');
+  wrap.innerHTML = '<div class="empty-state">Loading messages...</div>';
+
+  let messages = state.recent_messages || [];
+  try {
+    const res = await fetch('/api/messages?limit=500');
+    if (res.ok) {
+      const data = await res.json();
+      messages = data.messages || messages;
+    }
+  } catch(e) {}
+
+  const thread = messages.filter(m => {
+    const fromA = m.sender_id === idA;
+    const fromB = m.sender_id === idB;
+    const toA = m.recipient_id === idA;
+    const toB = m.recipient_id === idB;
+    return (fromA && toB) || (fromB && toA);
+  });
+
+  const agentA = state.agents[idA] || { name: idA };
+  const agentB = state.agents[idB] || { name: idB };
+  const colorA = agentColor(idA);
+  const colorB = agentColor(idB);
+
+  if (!thread.length) {
+    wrap.innerHTML = `<div class="empty-state">No direct messages between ${escHtml(agentA.name)} and ${escHtml(agentB.name)} yet.</div>`;
+    return;
+  }
+
+  wrap.innerHTML = `<div class="chart-card">
+    <div class="chart-title">
+      <span style="color:${colorA}">${escHtml(agentA.name)}</span>
+      <span style="color:var(--text-muted)"> &harr; </span>
+      <span style="color:${colorB}">${escHtml(agentB.name)}</span>
+      <span style="font-weight:400;color:var(--text-muted);margin-left:8px">(${thread.length} messages)</span>
+    </div>
+    <div style="max-height:420px;overflow-y:auto">
+      ${thread.map(m => {
+        const fromA = m.sender_id === idA;
+        const senderColor = fromA ? colorA : colorB;
+        const senderName = fromA ? agentA.name : agentB.name;
+        const align = fromA ? 'flex-start' : 'flex-end';
+        const bg = fromA ? colorA + '12' : colorB + '12';
+        const border = fromA ? colorA : colorB;
+        return `<div style="display:flex;flex-direction:column;align-items:${align};margin-bottom:8px">
+          <div style="font-size:10px;color:var(--text-muted);margin-bottom:3px">
+            <span style="color:${senderColor};font-weight:600">${escHtml(senderName)}</span> &middot; Day ${m.day || '?'}
+          </div>
+          <div style="background:${bg};border-left:3px solid ${border};padding:7px 10px;border-radius:0 6px 6px 0;max-width:85%;font-size:12px;color:var(--text);line-height:1.45">
+            ${escHtml(m.body || m.content || '')}
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+  </div>`;
+}
+
+/* ============================================================
+   TOPBAR CONTROLS
+============================================================ */
+document.getElementById('btnPause').addEventListener('click', () => {
+  if (state.paused) {
+    wsSend({ cmd: 'resume' });
+    state.paused = false;
+  } else {
+    wsSend({ cmd: 'pause' });
+    state.paused = true;
+  }
+  renderTopbar();
+});
+
+document.getElementById('btnFF').addEventListener('click', () => {
+  state.fast_forward = !state.fast_forward;
+  wsSend({ cmd: 'fast_forward', enabled: state.fast_forward });
+  renderTopbar();
+});
+
+document.getElementById('tbSpeedInput').addEventListener('change', () => {
+  const v = parseFloat(document.getElementById('tbSpeedInput').value);
+  if (!isNaN(v) && v > 0) {
+    wsSend({ cmd: 'set_speed', seconds: v });
+  }
+});
+
+document.getElementById('tbScrubber').addEventListener('input', (e) => {
+  const day = parseInt(e.target.value);
+  document.getElementById('tbScrubberVal').textContent = day;
+  wsSend({ cmd: 'seek', day });
+});
+
+document.getElementById('btnNew').addEventListener('click', () => {
+  if (ws) { try { ws.close(); } catch(e) {} ws = null; }
+  balanceHistory = {};
+  misrepHistory = [];
+  priceHistory = {};
+  for (const c of Object.values(charts)) { try { c.destroy(); } catch(e) {} }
+  charts = {};
+  showWelcome();
+  loadRuns();
+});
+
+/* ============================================================
+   AGENT MODAL
+============================================================ */
+function openAgentModal(agentId) {
+  currentAgentId = agentId;
+  currentAgentData = null;
+  activeAgentTab = 'tactical';
+
+  const agent = state.agents[agentId] || { id: agentId, name: agentId, role: '' };
+  const color = agentColor(agentId);
+
+  document.getElementById('modalAgentDot').style.background = color;
+  document.getElementById('modalAgentTitle').textContent = agent.name + ' -- ' + agent.role;
+  document.getElementById('agentModalContent').innerHTML = '<div class="empty-state">Loading...</div>';
+
+  document.getElementById('agentModal').classList.remove('hidden');
+  document.querySelectorAll('.modal-tab').forEach(t => t.classList.toggle('active', t.dataset.atab === 'tactical'));
+
+  // Request agent detail via WS
+  wsSend({ cmd: 'get_agent', agent_id: agentId });
+}
+
+document.getElementById('modalAgentClose').addEventListener('click', () => {
+  document.getElementById('agentModal').classList.add('hidden');
+});
+
+document.getElementById('agentModal').addEventListener('click', (e) => {
+  if (e.target === document.getElementById('agentModal')) {
+    document.getElementById('agentModal').classList.add('hidden');
+  }
+});
+
+document.querySelectorAll('.modal-tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.modal-tab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    activeAgentTab = btn.dataset.atab;
+    if (currentAgentData) renderAgentModal(currentAgentData);
+  });
+});
+
+function handleAgentDetail(msg) {
+  currentAgentData = msg;
+  renderAgentModal(msg);
+}
+
+function renderAgentModal(data) {
+  const agent = data.agent || {};
+  const txns  = data.transactions || [];
+  const msgs  = data.messages || [];
+  const offers = data.offers || [];
+  const reasoningLog = data.reasoning_log || [];
+  const strategyNotes = agent.strategy_notes || '';
+  const content = document.getElementById('agentModalContent');
+  const color = agentColor(agent.id || agent.name);
+  const isSeller = agent.role === 'seller';
+
+  if (activeAgentTab === 'tactical') {
+    // Tactical Decisions: shows recent reasoning/decisions, pending offers, recent transactions
+    let pendingHTML = '';
+    if (offers.length) {
+      pendingHTML = `<div class="chart-card" style="margin-bottom:12px;border-left:3px solid var(--amber)">
+        <div class="chart-title" style="color:var(--amber)">Pending Negotiations (${offers.length})</div>
+        ${offers.map(o => `<div style="font-size:12px;color:var(--text);padding:4px 0;border-bottom:1px solid var(--card-border)">
+          ${escHtml(o.proposer_id)} &rarr; ${escHtml(o.counterparty_id)}: ${o.quantity} unit(s) @ $${(o.price_per_unit||0).toFixed(2)} (${escHtml(o.claimed_quality||'?')})
+        </div>`).join('')}
+      </div>`;
+    }
+
+    // Role stats summary
+    let statsHTML = '';
+    if (isSeller) {
+      const accuracyPct = Math.round((agent.quality_accuracy || 1) * 100);
+      statsHTML = `<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:12px">
+        <div class="chart-card" style="margin-bottom:0;text-align:center">
+          <div class="chart-title">Cash</div>
+          <div style="font-size:18px;font-weight:700">${fmt$(agent.balance)}</div>
+        </div>
+        <div class="chart-card" style="margin-bottom:0;text-align:center">
+          <div class="chart-title">Inventory</div>
+          <div style="font-size:18px;font-weight:700">${agent.inventory_count ?? '--'}</div>
+        </div>
+        <div class="chart-card" style="margin-bottom:0;text-align:center">
+          <div class="chart-title">Factories</div>
+          <div style="font-size:18px;font-weight:700">${agent.factories ?? '--'}</div>
+        </div>
+        <div class="chart-card" style="margin-bottom:0;text-align:center">
+          <div class="chart-title">Honesty</div>
+          <div style="font-size:18px;font-weight:700;color:${accuracyPct >= 80 ? 'var(--green)' : 'var(--red)'}">${accuracyPct}%</div>
+        </div>
+      </div>`;
+    } else {
+      const quota = agent.quota || 20;
+      const acquired = agent.acquired || 0;
+      const pct = Math.round((acquired / quota) * 100);
+      const penalties = agent.total_penalties || 0;
+      statsHTML = `<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:12px">
+        <div class="chart-card" style="margin-bottom:0;text-align:center">
+          <div class="chart-title">Cash</div>
+          <div style="font-size:18px;font-weight:700">${fmt$(agent.balance)}</div>
+        </div>
+        <div class="chart-card" style="margin-bottom:0;text-align:center">
+          <div class="chart-title">Quota</div>
+          <div style="font-size:18px;font-weight:700;color:${pct>=100?'var(--green)':'var(--amber)'}">${acquired}/20</div>
+          <div style="margin-top:4px"><div class="quota-bar-wrap"><div class="quota-bar-fill" style="background:${color};width:${pct}%"></div></div></div>
+        </div>
+        <div class="chart-card" style="margin-bottom:0;text-align:center">
+          <div class="chart-title">Penalties</div>
+          <div style="font-size:18px;font-weight:700;color:var(--red)">${fmt$(penalties)}</div>
+        </div>
+        <div class="chart-card" style="margin-bottom:0;text-align:center">
+          <div class="chart-title">Daily Penalty</div>
+          <div style="font-size:18px;font-weight:700;color:var(--amber)">$${agent.daily_penalty ?? 0}</div>
+        </div>
+      </div>`;
+    }
+
+    // Recent reasoning log
+    let reasoningHTML = '';
+    if (reasoningLog.length) {
+      reasoningHTML = `<div class="chart-card" style="margin-bottom:0">
+        <div class="chart-title">Recent Tactical Decisions</div>
+        <div style="max-height:300px;overflow-y:auto">
+          ${[...reasoningLog].reverse().slice(0,20).map(entry => `
+            <div class="feed-item" style="border-left:3px solid ${color}">
+              <div class="feed-item-top">
+                <span class="feed-badge badge-sys">Day ${entry.day ?? '?'}</span>
+                <span style="font-size:11px;color:var(--text-muted)">${escHtml(entry.action || entry.phase || '')}</span>
+              </div>
+              <div class="feed-body" style="white-space:pre-wrap;font-size:12px;line-height:1.5">${escHtml(entry.reasoning || entry.text || '')}</div>
+            </div>`).join('')}
+        </div>
+      </div>`;
+    } else {
+      reasoningHTML = '<div class="empty-state">No tactical decisions recorded yet.</div>';
+    }
+
+    content.innerHTML = statsHTML + pendingHTML + reasoningHTML;
+
+  } else if (activeAgentTab === 'strategic') {
+    // CEO Strategic Reviews: strategy notes written by the agent
+    if (!strategyNotes.trim()) {
+      content.innerHTML = '<div class="empty-state">No strategic reviews written yet -- the CEO has not committed any notes to memory.</div>';
+      return;
+    }
+
+    // Split by day headers if they exist, or show as one block
+    const blocks = strategyNotes.split(/\n(?=Day \d+)/i).filter(b => b.trim());
+
+    if (blocks.length > 1) {
+      content.innerHTML = blocks.reverse().map(block => {
+        const dayMatch = block.match(/^Day (\d+)/i);
+        const day = dayMatch ? dayMatch[1] : '?';
+        return `<div class="narrative-card">
+          <div class="narrative-day">Day ${day} -- CEO Review</div>
+          <div class="narrative-text" style="white-space:pre-wrap;font-size:13px">${escHtml(block)}</div>
+        </div>`;
+      }).join('');
+    } else {
+      content.innerHTML = `<div style="background:#f8f5f0;border-radius:8px;padding:14px;font-size:13px;line-height:1.65;color:var(--text);white-space:pre-wrap;max-height:480px;overflow-y:auto">${escHtml(strategyNotes)}</div>`;
+    }
+  }
+}
+
+/* ============================================================
+   END OF RUN MODAL
+============================================================ */
+let eorShown = false;
+
+function showEorModal() {
+  if (eorShown) return;
+  eorShown = true;
+
+  const summary = state.summary || {};
+  const health = summary.market_health || {};
+  const manip = summary.manipulation_counts || {};
+
+  const grade = health.grade || '--';
+  const score = health.score != null ? health.score.toFixed(1) : '--';
+  const subScores = health.sub_scores || {};
+
+  let subHTML = Object.entries(subScores).map(([k, v]) =>
+    `<div class="eor-sub">
+      <div class="eor-sub-val">${typeof v === 'number' ? v.toFixed(1) : v}</div>
+      <div class="eor-sub-name">${escHtml(k.replace(/_/g,' '))}</div>
+    </div>`
+  ).join('');
+
+  let manipHTML = Object.entries(manip).filter(([,v]) => v > 0).map(([k, v]) =>
+    `<span class="manip-badge">${escHtml(k.replace(/_/g,' '))}: ${v}</span>`
+  ).join('');
+
+  const allAgents = Object.values(state.agents || {});
+  const sellers = allAgents.filter(a => a.role === 'seller').sort((a,b) => (b.net_profit||b.profit||0) - (a.net_profit||a.profit||0));
+  const buyers  = allAgents.filter(a => a.role === 'buyer').sort((a,b) => (b.balance||0) - (a.balance||0));
+
+  let standingsHTML = '';
+  if (sellers.length) {
+    standingsHTML += `<p class="section-label" style="margin-bottom:6px">Sellers -- by Net Profit</p>
+    <table class="standings-table" style="margin-bottom:16px"><thead><tr>
+      <th>#</th><th>Seller</th><th>Net Profit</th><th>Cash</th><th>Honest %</th>
+    </tr></thead><tbody>`;
+    sellers.forEach((a, i) => {
+      const color = agentColor(a.id || a.name);
+      const profit = a.net_profit ?? a.profit ?? 0;
+      const profitCls = profit >= 0 ? 'text-green' : 'text-red';
+      const accuracyPct = Math.round((a.quality_accuracy || 1) * 100);
+      standingsHTML += `<tr>
+        <td>${i+1}</td>
+        <td style="font-weight:600;color:${color}">${escHtml(a.name)}</td>
+        <td class="${profitCls} fw600">${profit >= 0 ? '+' : ''}${fmt$(profit)}</td>
+        <td style="font-weight:600">${fmt$(a.balance)}</td>
+        <td>${accuracyPct}%</td>
+      </tr>`;
+    });
+    standingsHTML += '</tbody></table>';
+  }
+
+  if (buyers.length) {
+    standingsHTML += `<p class="section-label" style="margin-bottom:6px">Buyers -- by Remaining Cash</p>
+    <table class="standings-table"><thead><tr>
+      <th>#</th><th>Buyer</th><th>Cash Left</th><th>Quota (of 20)</th><th>Penalties</th>
+    </tr></thead><tbody>`;
+    buyers.forEach((a, i) => {
+      const color = agentColor(a.id || a.name);
+      const quota = 20;
+      const acquired = a.acquired || 0;
+      const pct = Math.round((acquired / quota) * 100);
+      const quotaCls = pct >= 100 ? 'text-green' : 'text-amber';
+      standingsHTML += `<tr>
+        <td>${i+1}</td>
+        <td style="font-weight:600;color:${color}">${escHtml(a.name)}</td>
+        <td style="font-weight:600">${fmt$(a.balance)}</td>
+        <td class="${quotaCls} fw600">${acquired}/${quota} (${pct}%)</td>
+        <td>${fmt$(a.total_penalties ?? a.value_differential ?? 0)}</td>
+      </tr>`;
+    });
+    standingsHTML += '</tbody></table>';
+  }
+
+  const narrative = summary.final_narrative || '';
+
+  document.getElementById('eorBody').innerHTML = `
+    <div class="eor-grade">${grade}</div>
+    <div class="eor-score">Market Health Score: ${score}/100</div>
+    ${subHTML ? `<div class="eor-sub-scores">${subHTML}</div>` : ''}
+    ${narrative ? `<div class="chart-card" style="background:#f8f5f0;margin-bottom:16px">
+      <div class="chart-title">Final Analysis</div>
+      <div style="font-size:13px;color:var(--text-sec);line-height:1.65;white-space:pre-wrap;max-height:280px;overflow-y:auto">${escHtml(narrative)}</div>
+    </div>` : ''}
+    ${manipHTML ? `<div style="margin-bottom:16px"><p class="section-label" style="margin-bottom:8px">Strategic Manipulation</p><div class="manip-grid">${manipHTML}</div></div>` : ''}
+    <p class="section-label" style="margin-bottom:8px;margin-top:4px">Final Standings</p>
+    ${standingsHTML}
+    <div style="text-align:center;margin-top:20px">
+      <button class="btn-run" onclick="startNewFromModal()">&#8617; New Experiment</button>
+    </div>
+  `;
+
+  document.getElementById('eorModal').classList.remove('hidden');
+}
+
+function startNewFromModal() {
+  document.getElementById('eorModal').classList.add('hidden');
+  document.getElementById('btnNew').click();
+}
+
+document.getElementById('eorClose').addEventListener('click', () => {
+  document.getElementById('eorModal').classList.add('hidden');
+});
+
+document.getElementById('eorModal').addEventListener('click', (e) => {
+  if (e.target === document.getElementById('eorModal')) {
+    document.getElementById('eorModal').classList.add('hidden');
+  }
+});
+
+/* ============================================================
+   UTILITIES
+============================================================ */
+function fmt$(v) {
+  if (v == null || isNaN(v)) return '--';
+  return '$' + Number(v).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 1 });
+}
+
+function escHtml(s) {
+  if (s == null) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/* ============================================================
+   BOOT
+============================================================ */
+init();
+</script>
+</body>
+</html>
