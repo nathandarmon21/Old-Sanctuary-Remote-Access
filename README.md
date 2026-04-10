@@ -73,67 +73,133 @@ python scripts/run_simulation.py --config configs/smoke_3day.yaml --seed 42
 python scripts/run_simulation.py --config configs/dev_available.yaml --seed 42
 ```
 
-## Quick start (Anthropic path)
+## Running the Simulation
+
+The system supports three operational modes sharing the same simulation core.
+
+### Mode 1: Batch (no dashboard)
+
+Runs the simulation as a standalone process, writes a complete run directory, exits.
 
 ```bash
-pip install -e .
-echo "ANTHROPIC_API_KEY=sk-ant-..." > .env
+# 3-day smoke test
+python -m sanctuary.run --config configs/smoke_3day.yaml --seed 42
 
-# 3-day smoke test (~3-5 min, ~$0.15)
-python scripts/run_simulation.py --config configs/smoke_haiku.yaml --seed 42
+# Full 30-day run
+python -m sanctuary.run --config configs/dev_local.yaml --seed 42
 
-# Generate report for any run
-python scripts/generate_report.py runs/<run_id>
+# Custom output directory
+python -m sanctuary.run --config configs/dev_local.yaml --seed 42 --output runs/my_run/
 ```
 
-## Project layout
+### Mode 2: Live Dashboard
 
-```
-sanctuary/          Core simulation package
-  agent.py          Dual-tier agent (strategic + tactical LLM calls)
-  simulation.py     Main 30-day loop with intra-day parallelism
-  market.py         Market state, offers, transactions
-  economics.py      Production costs, revenue, bankruptcy logic
-  revelation.py     Stochastic quality revelation scheduler
-  messaging.py      Intra-day message routing
-  logs.py           JSONL structured logging
-  report.py         PDF report generator
-  prompts.py        All LLM prompt templates
-  style.py          Visual style constants (colours, fonts)
-  providers/        LLM backend adapters (Ollama, vLLM)
-  config.py         Config loading and validation
+Starts FastAPI server, runs the simulation as an asyncio task, broadcasts state via WebSocket.
 
-configs/            YAML config files
-  dev_local.yaml    Canonical dev config (qwen2.5, 30 days)
-  dev_available.yaml  Same but with verified model names
-  smoke_3day.yaml   Fast 3-day smoke test
-
-scripts/
-  run_simulation.py  Main CLI entry point
-  generate_report.py Standalone report generator
-  check_ollama_parallelism.py  Parallelism diagnostic
-  run_background.sh  Background run launcher
-
-tests/              pytest test suite (106 tests)
-runs/               Simulation output directories (gitignored)
+```bash
+python -m sanctuary.dev --config configs/dev_local.yaml --port 8090
+# Open http://localhost:8090 in your browser
 ```
 
-## Run output
+Controls: pause, resume, speed adjustment, fast-forward. Per-agent drill-down shows
+tactical decisions and CEO strategic reviews in separate tabs.
 
-Each run produces a directory `runs/{run_id}/` containing:
+### Mode 3: Replay
 
-- `config.json` — full config snapshot
-- `transactions.jsonl` — every completed transaction
-- `revelations.jsonl` — quality revelations with cash adjustments
-- `messages.jsonl` — inter-agent messages
-- `market_state.jsonl` — daily market snapshots
-- `events.jsonl` — discrete events (bankruptcy, factory builds, parse errors)
-- `heartbeat.txt` — last updated every simulated day (for monitoring live runs)
-- `agents/{name}/` — per-agent strategic calls, tactical calls, policy history
-- `report.pdf` — generated at run completion
+Loads a completed run directory and serves it through the dashboard with timeline scrubbing.
+
+```bash
+python -m sanctuary.replay --run runs/<run_id>/ --port 8090
+```
+
+### Resume from Checkpoint
+
+Simulations checkpoint every 5 days. To resume an interrupted run:
+
+```bash
+python -m sanctuary.run --config configs/dev_local.yaml --seed 42 --resume runs/<run_id>/
+```
+
+## Project Layout
+
+```
+sanctuary/              Core simulation package
+  engine.py             Main simulation loop with all subsystem integration
+  agent.py              Dual-tier agent (strategic + tactical LLM calls)
+  market.py             Market state, offers, transactions
+  economics.py          Production costs (lookup table), revenue, bankruptcy
+  revelation.py         Deterministic 5-day quality revelation
+  context_manager.py    Tier-specific context assembly + market digest
+  events.py             Structured events.jsonl writer
+  transcripts.py        Per-agent transcript storage
+  run_directory.py      Run directory schema manager
+  messaging.py          Intra-day message routing
+  config.py             Config loading and validation (Pydantic v2)
+  run.py / dev.py / replay.py   Three mode entry points
+  prompts/              Dual-tier prompt templates
+    tactical.py         Daily operations prompts
+    strategic.py        Weekly CEO review prompts
+    common.py           Shared formatters
+    sub_round.py        Accept/decline only prompts
+  protocols/            Market governance regimes
+    base.py             Protocol base class with lifecycle hooks
+    factory.py          Protocol registry and dispatch
+    no_protocol.py      Baseline (no reputation, no auditing)
+  metrics/              Post-run metric computation
+    misrepresentation.py  Misrepresentation Rate
+    allocative_efficiency.py  AE + Price-Cost Margin (Lerner Index)
+    market_integrity.py   PPI, Markup Correlation, Exploitation Rate, Trust Persistence
+    aggregate.py        Compute all metrics from events.jsonl
+  analytics/            In-run lightweight analytics
+    scanner.py          Chain-of-thought keyword scanner (7 categories)
+    series.py           Daily time series tracker (CSV export)
+  checkpointing/        Save/restore at day boundaries
+    checkpoint.py       Serialize/deserialize engine state + RNG
+  dashboard/            FastAPI + WebSocket dashboard
+    app.py              Backend (live + replay modes)
+    static/index.html   Single-file SPA (8 agents, dual-tier drill-down)
+  providers/            LLM backend adapters
+    base.py             Abstract ModelProvider
+    ollama.py / vllm.py / anthropic.py
+  logs.py               Legacy JSONL logging (kept for backward compat)
+  report.py             PDF report generator (legacy, untouched)
+  style.py              Visual style constants
+
+configs/                YAML config files
+  dev_local.yaml        Qwen 2.5 via Ollama (spec baseline)
+  dev_haiku.yaml        Claude Haiku via Anthropic API
+  production.yaml       vLLM on GPU cluster (Phase 2+)
+  smoke_*.yaml          3-day smoke tests
+
+tests/                  pytest suite (383 tests)
+runs/                   Simulation output directories (gitignored)
+docs/                   Specification document
+```
+
+## Run Directory Schema
+
+Each simulation produces a directory with fixed schema:
+
+```
+runs/<run_id>/
+  manifest.json               Run metadata + status (running/complete/crashed)
+  events.jsonl                 Canonical chronological event log
+  metrics.json                 Computed scalar metrics
+  series.csv                   Daily time series
+  final_state.json             End-of-run engine snapshot
+  config_used.yaml             Exact config that ran
+  agents/
+    <agent_id>/
+      tactical_transcript.jsonl   Every tactical LLM call (full prompt + response)
+      strategic_transcript.jsonl  Every strategic LLM call (full prompt + response)
+      reasoning_log.jsonl         Parsed reasoning for fast access
+  checkpoints/                 Saved every 5 days
+```
+
+The events log is the source of truth. Metrics can be recomputed from it without re-running.
 
 ## Reproducibility
 
-Two runs with the same `--seed` produce byte-identical transaction logs
+Two runs with the same `--seed` produce identical transaction logs
 (excluding wall-clock timestamps). Parallelism is applied to LLM calls only;
 all market state mutations happen in deterministic alphabetical order.
