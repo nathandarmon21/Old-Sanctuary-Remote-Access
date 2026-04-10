@@ -315,10 +315,10 @@ class SimulationEngine:
         for msg in router.all_messages():
             self.run_dir.events.write_event(
                 "message_sent", day=day,
-                from_agent=msg.get("from", "?"),
-                to_agent=msg.get("to", "?"),
-                public=msg.get("public", False),
-                body=msg.get("body", ""),
+                from_agent=msg.sender,
+                to_agent=msg.recipient,
+                public=msg.is_public,
+                body=msg.content,
             )
 
         # 12. Inactivity

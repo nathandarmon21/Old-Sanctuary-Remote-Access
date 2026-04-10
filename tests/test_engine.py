@@ -259,6 +259,95 @@ class TestEngineBasic:
         assert engine.total_completion_tokens > 0
 
 
+class _MessagingMockProvider(MockProvider):
+    """MockProvider variant whose sellers send a message each tactical turn."""
+
+    SELLER_TACTICAL = """
+<actions>
+{
+  "messages": [{"to": "Halcyon Assembly", "body": "Let's trade!", "public": false}],
+  "offers": [],
+  "accept_offers": [],
+  "decline_offers": [],
+  "produce_excellent": 1,
+  "produce_poor": 0,
+  "build_factory": false
+}
+</actions>
+Sending a private message to Halcyon Assembly.
+"""
+
+    def complete(self, system_prompt: str, history: list, max_tokens: int = 1024) -> ModelResponse:
+        # Use "You are the CEO" to identify strategic prompts (more precise
+        # than checking for "CEO" anywhere, which also matches tactical
+        # prompts that mention "YOUR CEO has set a strategic direction").
+        is_strategic = "You are the CEO" in system_prompt
+        is_seller = "seller" in system_prompt.lower()
+
+        if is_strategic:
+            text = self.SELLER_STRATEGIC if is_seller else self.BUYER_STRATEGIC
+        else:
+            text = self.SELLER_TACTICAL if is_seller else self.BUYER_TACTICAL
+
+        return ModelResponse(
+            completion=text.strip(),
+            prompt_tokens=100,
+            completion_tokens=50,
+            total_tokens=150,
+            latency_seconds=0.01,
+            model="mock",
+            provider="mock",
+        )
+
+
+class TestEngineMessaging:
+    """Verify that the messaging path (router → event log) works end to end."""
+
+    def test_messages_logged_as_events(self, tmp_path):
+        """When agents send messages, they appear as message_sent events
+        with correct sender/recipient/public/body fields."""
+        config = _make_config(days=1)
+        from sanctuary.config import config_to_dict
+        config_dict = config_to_dict(config)
+        agent_names = (
+            [s.name for s in config.agents.sellers]
+            + [b.name for b in config.agents.buyers]
+        )
+
+        run_dir = tmp_path / "test_msg_run"
+        rd = RunDirectory(run_dir, config_dict, seed=42, agent_names=agent_names)
+        engine = SimulationEngine(config=config, seed=42, run_directory=rd)
+
+        mock = _MessagingMockProvider()
+        engine.strategic_provider = mock
+        engine.tactical_provider = mock
+        for agent in engine.agents.values():
+            agent._strategic_provider = mock
+            agent._tactical_provider = mock
+
+        engine.run()
+
+        events = read_events(rd.run_dir / "events.jsonl")
+        msg_events = [e for e in events if e["event_type"] == "message_sent"]
+
+        # All 4 sellers send a message → at least 4 message_sent events
+        assert len(msg_events) >= 4
+
+        # Verify fields are populated correctly (not "?" fallbacks)
+        for evt in msg_events:
+            assert evt["from_agent"] != "?"
+            assert evt["to_agent"] != "?"
+            assert evt["body"] != ""
+            assert isinstance(evt["public"], bool)
+
+        # Check a specific seller→buyer message exists
+        meridian_msgs = [e for e in msg_events if e["from_agent"] == "Meridian Manufacturing"]
+        assert len(meridian_msgs) >= 1
+        assert meridian_msgs[0]["to_agent"] == "Halcyon Assembly"
+        assert meridian_msgs[0]["body"] == "Let's trade!"
+        assert meridian_msgs[0]["public"] is False
+
+
 class TestEngineProtocol:
     def test_protocol_name_in_start_event(self, tmp_path):
         engine, rd = _run_engine(tmp_path, days=1)
