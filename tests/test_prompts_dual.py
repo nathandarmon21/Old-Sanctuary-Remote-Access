@@ -11,20 +11,20 @@ import re
 
 import pytest
 
-from sanctuary.prompts_pkg.tactical import (
+from sanctuary.prompts.tactical import (
     SELLER_TACTICAL_SYSTEM,
     BUYER_TACTICAL_SYSTEM,
     build_seller_tactical_system,
     build_buyer_tactical_system,
 )
-from sanctuary.prompts_pkg.strategic import (
+from sanctuary.prompts.strategic import (
     SELLER_STRATEGIC_SYSTEM,
     BUYER_STRATEGIC_SYSTEM,
     build_seller_strategic_system,
     build_buyer_strategic_system,
 )
-from sanctuary.prompts_pkg.sub_round import SUB_ROUND_PROMPT
-from sanctuary.prompts_pkg.common import (
+from sanctuary.prompts.sub_round import SUB_ROUND_PROMPT
+from sanctuary.prompts.common import (
     INACTIVITY_NUDGE,
     format_inventory_for_seller,
     format_inventory_for_buyer,

@@ -27,20 +27,15 @@ from typing import Any
 from sanctuary.market import MarketState, PendingOffer
 from sanctuary.messaging import MessageRouter
 from sanctuary.providers.base import ModelProvider, ModelResponse
-from sanctuary.prompts import (
-    BUYER_STRATEGIC_PROMPT,
-    BUYER_TACTICAL_PROMPT,
+from sanctuary.prompts.common import (
     INACTIVITY_NUDGE,
-    SELLER_STRATEGIC_PROMPT,
-    SELLER_TACTICAL_PROMPT,
-    SUB_ROUND_PROMPT,
-    format_history,
     format_inventory_for_buyer,
     format_inventory_for_seller,
     format_pending_offers_for_buyer,
     format_pending_offers_for_seller,
     format_prev_outcomes,
 )
+from sanctuary.prompts.sub_round import SUB_ROUND_PROMPT
 
 
 # ── Parsed action types ───────────────────────────────────────────────────────
@@ -318,42 +313,52 @@ class Agent:
         market_summary: str,
         transaction_summary: str,
     ) -> str:
-        inv_view = market.view_inventory_for(self.name)
-        policy_history_text = self._format_policy_history()
-        current_state = market.summary_for_agent(self.name, day, self.days_total)
+        from sanctuary.economics import (
+            BUYER_DAILY_QUOTA_PENALTY,
+            BUYER_TERMINAL_QUOTA_PENALTY,
+            BUYER_WIDGET_QUOTA,
+            FACTORY_BUILD_COST,
+            FACTORY_BUILD_DAYS,
+            FMV,
+            REVELATION_LAG_DAYS,
+            production_cost,
+        )
+        from sanctuary.prompts.strategic import (
+            build_buyer_strategic_system,
+            build_seller_strategic_system,
+        )
 
         if self.is_seller:
-            seller = market.sellers[self.name]
-            return SELLER_STRATEGIC_PROMPT.format(
+            return build_seller_strategic_system(
                 company_name=self.name,
-                starting_cash=seller.cash,
-                starting_factories=seller.factories,
-                starting_inventory_summary=_format_seller_inv_summary(inv_view),
-                week_number=week,
+                days_total=self.days_total,
                 day=day,
-                market_summary=market_summary,
-                policy_history=policy_history_text,
-                transaction_summary=transaction_summary,
-                fg_price_excellent=market.fg_prices["Excellent"],
-                fg_price_poor=market.fg_prices["Poor"],
-                current_state=current_state,
+                fmv_excellent=FMV["Excellent"],
+                fmv_poor=FMV["Poor"],
+                cost_1e=production_cost("Excellent", 1),
+                cost_1p=production_cost("Poor", 1),
+                cost_2e=production_cost("Excellent", 2),
+                cost_2p=production_cost("Poor", 2),
+                cost_3e=production_cost("Excellent", 3),
+                cost_3p=production_cost("Poor", 3),
+                cost_4e=production_cost("Excellent", 4),
+                cost_4p=production_cost("Poor", 4),
+                factory_cost=FACTORY_BUILD_COST,
+                factory_days=FACTORY_BUILD_DAYS,
+                revelation_days=REVELATION_LAG_DAYS,
+                buyer_quota=BUYER_WIDGET_QUOTA,
             )
         else:
-            from sanctuary.economics import BUYER_WIDGET_QUOTA, BUYER_DAILY_QUOTA_PENALTY, daily_quota_penalty
-            buyer = market.buyers[self.name]
-            return BUYER_STRATEGIC_PROMPT.format(
+            return build_buyer_strategic_system(
                 company_name=self.name,
-                starting_cash=buyer.cash,
-                widgets_acquired=buyer.widgets_acquired,
-                inventory_summary=format_inventory_for_buyer(inv_view),
-                week_number=week,
+                days_total=self.days_total,
                 day=day,
-                fg_price_excellent=market.fg_prices["Excellent"],
-                fg_price_poor=market.fg_prices["Poor"],
-                market_summary=market_summary,
-                policy_history=policy_history_text,
-                transaction_summary=transaction_summary,
-                current_state=current_state,
+                widget_quota=BUYER_WIDGET_QUOTA,
+                daily_penalty=BUYER_DAILY_QUOTA_PENALTY,
+                terminal_penalty=BUYER_TERMINAL_QUOTA_PENALTY,
+                fmv_excellent=FMV["Excellent"],
+                fmv_poor=FMV["Poor"],
+                revelation_days=REVELATION_LAG_DAYS,
             )
 
     def _build_tactical_system_prompt(
@@ -366,66 +371,40 @@ class Agent:
         inactivity_days: int,
         prev_outcomes: list[str] | None = None,
     ) -> str:
-        inv_view = market.view_inventory_for(self.name)
-        messages_today = router.messages_for(self.name)
-        market_state_summary = _format_market_state(market, self.name)
-        history_text = format_history(self.history)
-        policy_text = (
-            self.current_policy.raw_memo
-            if self.current_policy
-            else "No strategic policy established yet. Act on general principles."
+        from sanctuary.economics import (
+            BUYER_DAILY_QUOTA_PENALTY,
+            BUYER_MAX_DAILY_PRODUCTION,
+            BUYER_TERMINAL_QUOTA_PENALTY,
+            BUYER_WIDGET_QUOTA,
+            FACTORY_BUILD_COST,
+            FACTORY_BUILD_DAYS,
+            FMV,
+            REVELATION_LAG_DAYS,
+        )
+        from sanctuary.prompts.tactical import (
+            build_buyer_tactical_system,
+            build_seller_tactical_system,
         )
 
-        nudge = ""
-        if inactivity_days >= 2:
-            nudge = INACTIVITY_NUDGE.format(
-                day=day,
-                company_name=self.name,
-                inactive_days=inactivity_days,
-            )
-
-        incoming_text = _format_incoming(messages_today, pending_offers_for_me, self.role)
-        current_state = market.summary_for_agent(self.name, day, self.days_total)
-        prev_outcomes_text = format_prev_outcomes(prev_outcomes or [], day)
-
         if self.is_seller:
-            seller = market.sellers[self.name]
-            return nudge + SELLER_TACTICAL_PROMPT.format(
+            return build_seller_tactical_system(
                 company_name=self.name,
-                day=day,
-                cash=seller.cash,
-                active_factories=seller.factories,
-                building_factories=len(seller.factory_build_queue),
-                inventory_detail=format_inventory_for_seller(inv_view),
-                history=history_text,
-                market_state_summary=market_state_summary,
-                incoming=incoming_text,
-                pending_offers=format_pending_offers_for_seller(my_pending_offers),
-                current_policy=policy_text,
-                current_state=current_state,
-                prev_outcomes=prev_outcomes_text,
+                days_total=self.days_total,
+                factory_cost=FACTORY_BUILD_COST,
+                factory_days=FACTORY_BUILD_DAYS,
+                revelation_days=REVELATION_LAG_DAYS,
             )
         else:
-            from sanctuary.economics import BUYER_WIDGET_QUOTA, BUYER_DAILY_QUOTA_PENALTY, daily_quota_penalty
-            buyer = market.buyers[self.name]
-            quota_remaining = max(0, BUYER_WIDGET_QUOTA - buyer.widgets_acquired)
-            return nudge + BUYER_TACTICAL_PROMPT.format(
+            return build_buyer_tactical_system(
                 company_name=self.name,
-                day=day,
-                cash=buyer.cash,
-                widgets_acquired=buyer.widgets_acquired,
-                quota_remaining=quota_remaining,
-                daily_penalty=daily_quota_penalty(buyer.widgets_acquired),
-                per_unit_penalty=BUYER_DAILY_QUOTA_PENALTY,
-                fg_price_excellent=market.fg_prices["Excellent"],
-                fg_price_poor=market.fg_prices["Poor"],
-                history=history_text,
-                market_state_summary=market_state_summary,
-                inventory_detail=format_inventory_for_buyer(inv_view),
-                incoming=incoming_text,
-                current_policy=policy_text,
-                current_state=current_state,
-                prev_outcomes=prev_outcomes_text,
+                days_total=self.days_total,
+                widget_quota=BUYER_WIDGET_QUOTA,
+                daily_penalty=BUYER_DAILY_QUOTA_PENALTY,
+                terminal_penalty=BUYER_TERMINAL_QUOTA_PENALTY,
+                revelation_days=REVELATION_LAG_DAYS,
+                fmv_excellent=FMV["Excellent"],
+                fmv_poor=FMV["Poor"],
+                daily_prod_cap=BUYER_MAX_DAILY_PRODUCTION,
             )
 
     def _format_policy_history(self) -> str:
