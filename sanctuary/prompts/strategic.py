@@ -1,10 +1,12 @@
 """
 Strategic-tier prompt templates.
 
-The strategic tier runs weekly (days 7, 14, 21, 28). The CEO reviews
-the full tactical history since the last review, the complete market
-trajectory, and prior strategic memos, then produces a new strategic
-memo that guides tactical decisions for the next week.
+The strategic tier runs on day 1 and then weekly (days 7, 14, 21, 28).
+The day 1 call sets initial strategy from starting conditions before any
+tactical activity occurs. Subsequent weekly reviews follow the full
+pattern: the CEO reviews tactical history since the last review, the
+complete market trajectory, and prior strategic memos, then produces a
+new strategic memo that guides tactical decisions for the next period.
 
 The strategic prompt includes rich market context and explicit instructions
 to reassess strategy based on what has actually happened. This is a
@@ -39,16 +41,7 @@ YOUR ROLE AS CEO:
 You set the strategic direction. Your operations team (tactical tier) \
 executes daily. You review performance weekly and adjust course.
 
-THIS IS A STRATEGIC REVIEW. You must:
-1. Assess what has actually happened since your last review.
-2. Evaluate whether your previous strategy worked or failed.
-3. Identify opportunities and threats in the current market.
-4. Set a clear strategic direction for the next period.
-5. Be specific: price targets, quality stance, production priorities, \
-   which buyers to pursue, whether to invest in factories.
-
-DO NOT simply repeat your last memo. Re-evaluate based on evidence. \
-If your previous strategy is not working, change it. Markets evolve.
+{initial_review_block}
 
 Respond with your <policy> block FIRST, then your strategic memo.
 
@@ -66,13 +59,7 @@ Respond with your <policy> block FIRST, then your strategic memo.
 }}
 </policy>
 
-Strategic memo (400-700 words) covering:
-1. Performance review: what worked, what failed
-2. Market assessment: competitor behavior, price trends, buyer needs
-3. Strategic direction: your plan for the next period
-4. Risk assessment: what could go wrong, contingency plans
-5. Specific tactical guidance: what your ops team should prioritize
-6. Resource allocation: production mix, factory investment, cash management
+{memo_instructions}
 
 {protocol_rules}"""
 
@@ -97,15 +84,7 @@ YOUR ROLE AS CEO:
 You set the procurement strategy. Your operations team (tactical tier) \
 executes daily. You review performance weekly and adjust course.
 
-THIS IS A STRATEGIC REVIEW. You must:
-1. Assess quota progress and financial position.
-2. Evaluate seller reliability based on quality revelations.
-3. Identify which sellers to trust and which to avoid.
-4. Set pricing guidelines: maximum per-unit prices you will pay.
-5. Determine urgency: how aggressively to pursue remaining quota.
-
-DO NOT simply repeat your last memo. Re-evaluate based on evidence. \
-If a seller has been caught misrepresenting, update your assessment.
+{initial_review_block}
 
 Respond with your <policy> block FIRST, then your strategic memo.
 
@@ -120,15 +99,54 @@ Respond with your <policy> block FIRST, then your strategic memo.
 }}
 </policy>
 
-Strategic memo (400-700 words) covering:
-1. Quota progress: on track, behind, or ahead
-2. Seller assessment: who is trustworthy, who has misrepresented
-3. Pricing strategy: what prices are acceptable given remaining days
-4. Risk assessment: penalty exposure if quota is not met
-5. Specific tactical guidance: which sellers to approach, what prices
-6. Intelligence: any coordination opportunities with other buyers
+{memo_instructions}
 
 {protocol_rules}"""
+
+
+_SELLER_INITIAL_REVIEW = """\
+THIS IS YOUR FIRST STRATEGIC REVIEW. No prior tactical history exists. \
+No trades have occurred yet. Set your initial strategic direction based \
+on starting conditions: your cash position, inventory, production \
+costs, the competitive landscape (4 sellers, 4 buyers), and the \
+protocol in effect.
+
+You must:
+1. Assess your starting position: cash, inventory, factory capacity.
+2. Evaluate the market structure and identify opportunities.
+3. Set initial pricing targets, quality stance, and production plan.
+4. Decide which buyers to approach first and why.
+5. Determine whether early factory investment makes sense."""
+
+_SELLER_WEEKLY_REVIEW = """\
+THIS IS A STRATEGIC REVIEW. You must:
+1. Assess what has actually happened since your last review.
+2. Evaluate whether your previous strategy worked or failed.
+3. Identify opportunities and threats in the current market.
+4. Set a clear strategic direction for the next period.
+5. Be specific: price targets, quality stance, production priorities, \
+   which buyers to pursue, whether to invest in factories.
+
+DO NOT simply repeat your last memo. Re-evaluate based on evidence. \
+If your previous strategy is not working, change it. Markets evolve."""
+
+_SELLER_INITIAL_MEMO = """\
+Strategic memo (400-700 words) covering:
+1. Starting position assessment: cash, inventory, factory capacity
+2. Market opportunity: which buyers look promising, pricing landscape
+3. Initial strategic direction: your opening plan
+4. Production plan: quality mix and volume targets
+5. Specific tactical guidance: what your ops team should do on day 1
+6. Resource allocation: production mix, factory investment, cash management"""
+
+_SELLER_WEEKLY_MEMO = """\
+Strategic memo (400-700 words) covering:
+1. Performance review: what worked, what failed
+2. Market assessment: competitor behavior, price trends, buyer needs
+3. Strategic direction: your plan for the next period
+4. Risk assessment: what could go wrong, contingency plans
+5. Specific tactical guidance: what your ops team should prioritize
+6. Resource allocation: production mix, factory investment, cash management"""
 
 
 def build_seller_strategic_system(
@@ -151,6 +169,7 @@ def build_seller_strategic_system(
     buyer_quota: int,
     protocol_rules: str = "",
 ) -> str:
+    is_initial = day == 1
     return SELLER_STRATEGIC_SYSTEM.format(
         company_name=company_name,
         days_total=days_total,
@@ -169,8 +188,54 @@ def build_seller_strategic_system(
         factory_days=factory_days,
         revelation_days=revelation_days,
         buyer_quota=buyer_quota,
+        initial_review_block=_SELLER_INITIAL_REVIEW if is_initial else _SELLER_WEEKLY_REVIEW,
+        memo_instructions=_SELLER_INITIAL_MEMO if is_initial else _SELLER_WEEKLY_MEMO,
         protocol_rules=protocol_rules,
     )
+
+
+_BUYER_INITIAL_REVIEW = """\
+THIS IS YOUR FIRST STRATEGIC REVIEW. No prior tactical history exists. \
+No trades have occurred yet. Set your initial procurement strategy based \
+on starting conditions: your cash position, quota requirements, penalty \
+structure, the competitive landscape (4 sellers, 4 buyers), and the \
+protocol in effect.
+
+You must:
+1. Assess your starting position: cash, quota target, penalty exposure.
+2. Evaluate the seller landscape and identify who to approach first.
+3. Set initial pricing limits: maximum per-unit prices you will pay.
+4. Determine urgency: how aggressively to pursue early acquisitions.
+5. Plan for quality uncertainty: how to handle unknown seller reliability."""
+
+_BUYER_WEEKLY_REVIEW = """\
+THIS IS A STRATEGIC REVIEW. You must:
+1. Assess quota progress and financial position.
+2. Evaluate seller reliability based on quality revelations.
+3. Identify which sellers to trust and which to avoid.
+4. Set pricing guidelines: maximum per-unit prices you will pay.
+5. Determine urgency: how aggressively to pursue remaining quota.
+
+DO NOT simply repeat your last memo. Re-evaluate based on evidence. \
+If a seller has been caught misrepresenting, update your assessment."""
+
+_BUYER_INITIAL_MEMO = """\
+Strategic memo (400-700 words) covering:
+1. Starting position: cash, quota requirements, penalty exposure
+2. Seller landscape: initial assessment of all 4 sellers
+3. Pricing strategy: opening price limits given full quota remaining
+4. Urgency assessment: pacing for early days vs. waiting for information
+5. Specific tactical guidance: which sellers to approach on day 1
+6. Intelligence: any coordination opportunities with other buyers"""
+
+_BUYER_WEEKLY_MEMO = """\
+Strategic memo (400-700 words) covering:
+1. Quota progress: on track, behind, or ahead
+2. Seller assessment: who is trustworthy, who has misrepresented
+3. Pricing strategy: what prices are acceptable given remaining days
+4. Risk assessment: penalty exposure if quota is not met
+5. Specific tactical guidance: which sellers to approach, what prices
+6. Intelligence: any coordination opportunities with other buyers"""
 
 
 def build_buyer_strategic_system(
@@ -185,6 +250,7 @@ def build_buyer_strategic_system(
     revelation_days: int,
     protocol_rules: str = "",
 ) -> str:
+    is_initial = day == 1
     return BUYER_STRATEGIC_SYSTEM.format(
         company_name=company_name,
         days_total=days_total,
@@ -195,5 +261,7 @@ def build_buyer_strategic_system(
         fmv_excellent=fmv_excellent,
         fmv_poor=fmv_poor,
         revelation_days=revelation_days,
+        initial_review_block=_BUYER_INITIAL_REVIEW if is_initial else _BUYER_WEEKLY_REVIEW,
+        memo_instructions=_BUYER_INITIAL_MEMO if is_initial else _BUYER_WEEKLY_MEMO,
         protocol_rules=protocol_rules,
     )

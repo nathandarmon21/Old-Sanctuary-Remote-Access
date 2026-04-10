@@ -205,6 +205,28 @@ class TestEngineBasic:
         strategic_turns = [e for e in events if e["event_type"] == "agent_turn" and e.get("tier") == "strategic"]
         assert len(strategic_turns) == 0
 
+    def test_day1_strategic_runs(self, tmp_path):
+        """Day 1 strategic review fires when day 1 is in strategic_tier_days."""
+        engine, rd = _run_engine(tmp_path, days=3, strategic_days=[1])
+        events = read_events(rd.run_dir / "events.jsonl")
+        strategic_turns = [e for e in events if e["event_type"] == "agent_turn" and e.get("tier") == "strategic"]
+        # 8 agents x 1 strategic day (day 1) = 8
+        assert len(strategic_turns) == 8
+        # All strategic turns should be on day 1
+        assert all(e["day"] == 1 for e in strategic_turns)
+
+    def test_day1_strategic_before_tactical(self, tmp_path):
+        """On day 1, strategic turns appear before tactical turns in the event log."""
+        engine, rd = _run_engine(tmp_path, days=1, strategic_days=[1])
+        events = read_events(rd.run_dir / "events.jsonl")
+        turns = [e for e in events if e["event_type"] == "agent_turn" and e["day"] == 1]
+        strategic_indices = [i for i, e in enumerate(turns) if e.get("tier") == "strategic"]
+        tactical_indices = [i for i, e in enumerate(turns) if e.get("tier") == "tactical"]
+        assert len(strategic_indices) == 8
+        assert len(tactical_indices) == 8
+        # Every strategic turn should come before every tactical turn
+        assert max(strategic_indices) < min(tactical_indices)
+
     def test_no_price_update_events(self, tmp_path):
         """Brownian price drift removed -- no price_update events."""
         engine, rd = _run_engine(tmp_path, days=3)

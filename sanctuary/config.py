@@ -52,7 +52,7 @@ class ProtocolConfig(BaseModel):
 
 class RunConfig(BaseModel):
     days: int = 30
-    strategic_tier_days: list[int] = Field(default_factory=lambda: [7, 14, 21, 28])
+    strategic_tier_days: list[int] = Field(default_factory=lambda: [1, 7, 14, 21, 28])
     max_sub_rounds: int = 2
     inactivity_nudge_threshold: int = 2
     max_parallel_llm_calls: int = 4

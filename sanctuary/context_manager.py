@@ -115,39 +115,64 @@ class ContextManager:
         all_prior_memos: list[str],
         competitive_landscape: str,
         protocol_context: str,
+        starting_conditions: str | None = None,
     ) -> str:
         """
         Assemble the user-message content for a strategic LLM call.
 
         Budget: ~15000 tokens for dynamic content (system prompt uses ~2500).
+
+        For the day 1 initial review, pass starting_conditions with a summary
+        of the firm's cash, inventory, factory count, and market structure.
+        When starting_conditions is provided and there is no tactical history
+        or prior memos, the context emphasizes starting position instead.
         """
         sections: list[str] = []
 
         # Authoritative state header
         sections.append(state_header)
 
-        # Full market history digest (~3000 tokens)
-        digest_text = _truncate_to_budget(market_digest, 3000)
-        sections.append(f"[MARKET HISTORY DIGEST]\n{digest_text}")
+        is_initial = (
+            starting_conditions is not None
+            and not tactical_history_since_last_review
+            and not all_prior_memos
+        )
 
-        # Complete tactical history since last review (~8000 tokens)
-        if tactical_history_since_last_review:
-            tac_text = "\n".join(
-                f"{entry['role'].upper()}: {entry['content']}"
-                for entry in tactical_history_since_last_review
+        if is_initial:
+            # Day 1: no market history or tactical activity yet
+            sections.append(
+                f"[STARTING CONDITIONS]\n{starting_conditions}"
             )
-            tac_text = _truncate_to_budget(tac_text, 8000)
-            sections.append(f"[TACTICAL HISTORY SINCE LAST REVIEW]\n{tac_text}")
+            sections.append(
+                "[TACTICAL HISTORY SINCE LAST REVIEW]\n"
+                "No tactical activity yet. This is the initial strategic review "
+                "before any trading begins."
+            )
+            sections.append(
+                "[PRIOR STRATEGIC MEMOS]\n"
+                "This is your first strategic review. Set initial direction."
+            )
         else:
-            sections.append("[TACTICAL HISTORY SINCE LAST REVIEW]\nNo tactical activity yet.")
+            # Weekly review: full market digest and tactical history
+            digest_text = _truncate_to_budget(market_digest, 3000)
+            sections.append(f"[MARKET HISTORY DIGEST]\n{digest_text}")
 
-        # All prior strategic memos (~2000 tokens)
-        if all_prior_memos:
-            memos_text = "\n---\n".join(all_prior_memos)
-            memos_text = _truncate_to_budget(memos_text, 2000)
-            sections.append(f"[PRIOR STRATEGIC MEMOS]\n{memos_text}")
-        else:
-            sections.append("[PRIOR STRATEGIC MEMOS]\nThis is your first strategic review.")
+            if tactical_history_since_last_review:
+                tac_text = "\n".join(
+                    f"{entry['role'].upper()}: {entry['content']}"
+                    for entry in tactical_history_since_last_review
+                )
+                tac_text = _truncate_to_budget(tac_text, 8000)
+                sections.append(f"[TACTICAL HISTORY SINCE LAST REVIEW]\n{tac_text}")
+            else:
+                sections.append("[TACTICAL HISTORY SINCE LAST REVIEW]\nNo tactical activity yet.")
+
+            if all_prior_memos:
+                memos_text = "\n---\n".join(all_prior_memos)
+                memos_text = _truncate_to_budget(memos_text, 2000)
+                sections.append(f"[PRIOR STRATEGIC MEMOS]\n{memos_text}")
+            else:
+                sections.append("[PRIOR STRATEGIC MEMOS]\nThis is your first strategic review.")
 
         # Competitive landscape
         if competitive_landscape:
