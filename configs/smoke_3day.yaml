@@ -6,7 +6,7 @@ run:
   strategic_tier_days: []
   max_sub_rounds: 1
   inactivity_nudge_threshold: 2
-  max_parallel_llm_calls: 8
+  max_parallel_llm_calls: 2
 
 models:
   strategic:
@@ -14,14 +14,14 @@ models:
     model: qwen2.5:14b
     temperature: 0.7
     max_tokens: 1200
-    timeout: 300.0
+    timeout: 600.0
     seed: null
   tactical:
     provider: ollama
     model: qwen2.5:7b
     temperature: 0.7
     max_tokens: 512
-    timeout: 120.0
+    timeout: 300.0
     seed: null
 
 economics:

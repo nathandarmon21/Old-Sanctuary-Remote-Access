@@ -55,7 +55,7 @@ class RunConfig(BaseModel):
     strategic_tier_days: list[int] = Field(default_factory=lambda: [1, 7, 14, 21, 28])
     max_sub_rounds: int = 2
     inactivity_nudge_threshold: int = 2
-    max_parallel_llm_calls: int = 4
+    max_parallel_llm_calls: int = 2
     checkpoint_interval: int = 5
 
     @field_validator("days")
