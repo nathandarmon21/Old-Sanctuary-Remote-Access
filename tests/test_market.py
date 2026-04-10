@@ -390,26 +390,26 @@ class TestTransactionValidation:
 
 class TestBankruptcy:
     def test_seller_bankruptcy_triggered_below_threshold(self):
-        market = make_simple_market(seller_cash=-3_001.0)
+        market = make_simple_market(seller_cash=-5_001.0)
         bankrupt = market.check_bankruptcies()
         assert "Meridian Manufacturing" in bankrupt
         assert market.sellers["Meridian Manufacturing"].bankrupt is True
 
     def test_buyer_bankruptcy_triggered_below_threshold(self):
-        market = make_simple_market(buyer_cash=-3_001.0)
+        market = make_simple_market(buyer_cash=-5_001.0)
         bankrupt = market.check_bankruptcies()
         assert "Halcyon Assembly" in bankrupt
         assert market.buyers["Halcyon Assembly"].bankrupt is True
 
     def test_bankruptcy_exactly_at_threshold_not_triggered(self):
         # At exactly -3000.0, agent survives (threshold is strictly less than)
-        market = make_simple_market(seller_cash=-3_000.0, buyer_cash=-3_000.0)
+        market = make_simple_market(seller_cash=-5_000.0, buyer_cash=-5_000.0)
         bankrupt = market.check_bankruptcies()
         assert len(bankrupt) == 0
 
     def test_bankruptcy_clears_seller_inventory(self):
         """Bankrupt seller's inventory is zeroed out (written off)."""
-        market = make_simple_market(seller_cash=-3_001.0, seller_excellent=5, seller_poor=3)
+        market = make_simple_market(seller_cash=-5_001.0, seller_excellent=5, seller_poor=3)
         market.check_bankruptcies()
         inv = market.sellers["Meridian Manufacturing"].inventory
         assert inv.get("Excellent", 0) == 0
@@ -440,8 +440,8 @@ class TestProduction:
         market = make_simple_market()
         initial_cash = market.sellers["Meridian Manufacturing"].cash
         market.execute_production("Meridian Manufacturing", excellent=1, poor=0)
-        # Production cost for Excellent with 1 factory = $25
-        assert market.sellers["Meridian Manufacturing"].cash == pytest.approx(initial_cash - 25.0)
+        # Production cost for Excellent with 1 factory = $30
+        assert market.sellers["Meridian Manufacturing"].cash == pytest.approx(initial_cash - 30.0)
 
     def test_production_exceeds_capacity_rejected(self):
         market = make_simple_market(seller_factories=1)
@@ -474,19 +474,21 @@ class TestFactoryBuild:
         initial_cash = market.sellers["Meridian Manufacturing"].cash
         market.start_factory_build("Meridian Manufacturing", current_day=1)
         assert market.sellers["Meridian Manufacturing"].cash == pytest.approx(
-            initial_cash - 1_500.0
+            initial_cash - 2_000.0
         )
 
     def test_factory_comes_online_after_build_days(self):
         market = make_simple_market()
         market.start_factory_build("Meridian Manufacturing", current_day=5)
-        # Not online on day 5 or day 6
+        # Not online on days 5, 6, or 7
         completions = market.process_factory_completions(current_day=5)
         assert "Meridian Manufacturing" not in completions
         completions = market.process_factory_completions(current_day=6)
         assert "Meridian Manufacturing" not in completions
-        # Online on day 7 (5 + 2)
         completions = market.process_factory_completions(current_day=7)
+        assert "Meridian Manufacturing" not in completions
+        # Online on day 8 (5 + 3)
+        completions = market.process_factory_completions(current_day=8)
         assert completions.get("Meridian Manufacturing") == 1
         assert market.sellers["Meridian Manufacturing"].factories == 2
 
@@ -722,7 +724,8 @@ class TestDailyCosts:
         market = make_simple_market(seller_excellent=2, seller_poor=3)
         initial_cash = market.sellers["Meridian Manufacturing"].cash
         costs = market.apply_holding_costs()
-        expected = 2 * 0.125 + 3 * 0.075
+        # 2% of production cost: 2 * ($30 * 0.02) + 3 * ($20 * 0.02) = 2 * 0.60 + 3 * 0.40 = 2.40
+        expected = 2 * 0.60 + 3 * 0.40
         assert costs["Meridian Manufacturing"] == pytest.approx(expected)
         assert market.sellers["Meridian Manufacturing"].cash == pytest.approx(
             initial_cash - expected
@@ -731,9 +734,9 @@ class TestDailyCosts:
     def test_buyer_quota_penalty_deducted(self):
         market = make_simple_market()
         initial_cash = market.buyers["Halcyon Assembly"].cash
-        # New buyer has 0 widgets_acquired → full penalty = 30 × $2 = $60
+        # New buyer has 0 widgets_acquired, quota is 20 -> full penalty = 20 x $2 = $40
         market.apply_buyer_quota_penalties()
-        assert market.buyers["Halcyon Assembly"].cash == pytest.approx(initial_cash - 60.0)
+        assert market.buyers["Halcyon Assembly"].cash == pytest.approx(initial_cash - 40.0)
 
     def test_bankrupt_agents_not_charged(self):
         market = make_simple_market()
@@ -756,23 +759,47 @@ class TestBuildInitialMarket:
     def test_builds_from_config(self):
         config = {
             "economics": {
-                "seller_starting_cash": 5_000.0,
+                "seller_starting_cash": [5_000.0, 4_500.0],
                 "seller_starting_factories": 1,
                 "buyer_starting_cash": 6_000.0,
+                "starting_widgets_per_seller": 8,
             },
             "agents": {
                 "sellers": [
-                    {"name": "Seller A", "starting_inventory": {"excellent": 2, "poor": 1}},
+                    {"name": "Seller A"},
+                    {"name": "Seller B"},
                 ],
                 "buyers": [
                     {"name": "Buyer X"},
                 ],
             },
         }
-        market = build_initial_market(config)
+        import numpy as np
+        rng = np.random.default_rng(42)
+        market = build_initial_market(config, rng=rng)
         assert "Seller A" in market.sellers
+        assert "Seller B" in market.sellers
         assert "Buyer X" in market.buyers
-        assert market.sellers["Seller A"].inventory["Excellent"] == 2
-        assert market.sellers["Seller A"].inventory["Poor"] == 1
+        # Starting inventory is 8 widgets total (random mix)
+        inv_a = market.sellers["Seller A"].inventory
+        assert inv_a["Excellent"] + inv_a["Poor"] == 8
+        # Asymmetric cash
         assert market.sellers["Seller A"].cash == 5_000.0
+        assert market.sellers["Seller B"].cash == 4_500.0
         assert market.buyers["Buyer X"].cash == 6_000.0
+
+    def test_builds_without_rng_uses_equal_split(self):
+        config = {
+            "economics": {
+                "seller_starting_cash": [5_000.0],
+                "starting_widgets_per_seller": 8,
+            },
+            "agents": {
+                "sellers": [{"name": "Seller A"}],
+                "buyers": [{"name": "Buyer X"}],
+            },
+        }
+        market = build_initial_market(config)
+        inv = market.sellers["Seller A"].inventory
+        assert inv["Excellent"] == 4
+        assert inv["Poor"] == 4

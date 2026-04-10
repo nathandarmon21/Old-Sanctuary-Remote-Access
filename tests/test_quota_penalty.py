@@ -1,5 +1,5 @@
 """
-Tests for the quota-penalty buyer model introduced in Phase 1 revision.
+Tests for the quota-penalty buyer model.
 
 Covers:
   - daily_quota_penalty and terminal_quota_penalty math
@@ -23,47 +23,47 @@ from sanctuary.economics import (
 from sanctuary.market import BuyerState, SellerState, MarketState
 
 
-# ── economics.py function tests ───────────────────────────────────────────────
+# -- economics.py function tests -----------------------------------------------
 
 class TestDailyQuotaPenalty:
     def test_zero_acquired_pays_full_penalty(self):
-        # 30 unfulfilled × $2 = $60/day
-        assert daily_quota_penalty(0) == pytest.approx(60.0)
+        # 20 unfulfilled x $2 = $40/day
+        assert daily_quota_penalty(0) == pytest.approx(40.0)
 
     def test_quota_met_pays_nothing(self):
-        assert daily_quota_penalty(30) == pytest.approx(0.0)
+        assert daily_quota_penalty(20) == pytest.approx(0.0)
 
     def test_quota_exceeded_pays_nothing(self):
-        assert daily_quota_penalty(35) == pytest.approx(0.0)
+        assert daily_quota_penalty(25) == pytest.approx(0.0)
 
-    def test_ten_widgets_day_15(self):
-        # Buyer with 10 widgets on day 15: 20 unfulfilled × $2 = $40/day
-        assert daily_quota_penalty(10) == pytest.approx(40.0)
+    def test_ten_widgets(self):
+        # 10 unfulfilled x $2 = $20/day
+        assert daily_quota_penalty(10) == pytest.approx(20.0)
 
-    def test_twenty_nine_acquired(self):
-        # 1 unfulfilled × $2 = $2/day
-        assert daily_quota_penalty(29) == pytest.approx(2.0)
+    def test_nineteen_acquired(self):
+        # 1 unfulfilled x $2 = $2/day
+        assert daily_quota_penalty(19) == pytest.approx(2.0)
 
 
 class TestTerminalQuotaPenalty:
     def test_zero_acquired(self):
-        # 30 unfulfilled × $60 = $1,800
-        assert terminal_quota_penalty(0) == pytest.approx(1800.0)
+        # 20 unfulfilled x $75 = $1,500
+        assert terminal_quota_penalty(0) == pytest.approx(1500.0)
 
     def test_quota_met_no_penalty(self):
-        assert terminal_quota_penalty(30) == pytest.approx(0.0)
+        assert terminal_quota_penalty(20) == pytest.approx(0.0)
 
     def test_ten_acquired(self):
-        # 20 unfulfilled × $60 = $1,200
-        assert terminal_quota_penalty(10) == pytest.approx(1200.0)
+        # 10 unfulfilled x $75 = $750
+        assert terminal_quota_penalty(10) == pytest.approx(750.0)
 
     def test_worst_case_math(self):
-        # Total worst case: 30 days × $60/day + $1,800 terminal = $3,600
+        # Total worst case: 30 days x $40/day + $1,500 terminal = $2,700
         total = sum(daily_quota_penalty(0) for _ in range(30)) + terminal_quota_penalty(0)
-        assert total == pytest.approx(3600.0)
+        assert total == pytest.approx(2700.0)
 
 
-# ── market.py quota mechanics ─────────────────────────────────────────────────
+# -- market.py quota mechanics -------------------------------------------------
 
 def _make_buyer_state(name: str, cash: float = 6000.0, acquired: int = 0) -> BuyerState:
     return BuyerState(name=name, cash=cash, widgets_acquired=acquired)
@@ -85,7 +85,7 @@ class TestApplyBuyerQuotaPenalties:
         market = _simple_market(buyer_acquired=0)
         initial_cash = market.buyers["Halcyon Assembly"].cash
         penalties = market.apply_buyer_quota_penalties()
-        expected = daily_quota_penalty(0)  # $60/day for 0 widgets
+        expected = daily_quota_penalty(0)  # $40/day for 0 of 20 widgets
         assert penalties["Halcyon Assembly"] == pytest.approx(expected)
         assert market.buyers["Halcyon Assembly"].cash == pytest.approx(initial_cash - expected)
 
@@ -93,11 +93,11 @@ class TestApplyBuyerQuotaPenalties:
         market = _simple_market(buyer_acquired=10)
         initial_cash = market.buyers["Halcyon Assembly"].cash
         market.apply_buyer_quota_penalties()
-        expected = daily_quota_penalty(10)  # $40/day
+        expected = daily_quota_penalty(10)  # $20/day
         assert market.buyers["Halcyon Assembly"].cash == pytest.approx(initial_cash - expected)
 
     def test_full_quota_no_penalty(self):
-        market = _simple_market(buyer_acquired=30)
+        market = _simple_market(buyer_acquired=20)
         initial_cash = market.buyers["Halcyon Assembly"].cash
         penalties = market.apply_buyer_quota_penalties()
         assert penalties["Halcyon Assembly"] == pytest.approx(0.0)
@@ -116,12 +116,12 @@ class TestApplyTerminalQuotaPenalties:
         market = _simple_market(buyer_acquired=0)
         initial_cash = market.buyers["Halcyon Assembly"].cash
         penalties = market.apply_terminal_quota_penalties()
-        expected = terminal_quota_penalty(0)  # $1,800
+        expected = terminal_quota_penalty(0)  # $1,500
         assert penalties["Halcyon Assembly"] == pytest.approx(expected)
         assert market.buyers["Halcyon Assembly"].cash == pytest.approx(initial_cash - expected)
 
     def test_terminal_no_penalty_when_quota_met(self):
-        market = _simple_market(buyer_acquired=30)
+        market = _simple_market(buyer_acquired=20)
         initial_cash = market.buyers["Halcyon Assembly"].cash
         penalties = market.apply_terminal_quota_penalties()
         assert penalties["Halcyon Assembly"] == pytest.approx(0.0)
@@ -131,19 +131,14 @@ class TestApplyTerminalQuotaPenalties:
         market = _simple_market(buyer_acquired=15)
         initial_cash = market.buyers["Halcyon Assembly"].cash
         market.apply_terminal_quota_penalties()
-        expected = terminal_quota_penalty(15)  # 15 unfulfilled × $60 = $900
+        expected = terminal_quota_penalty(15)  # 5 unfulfilled x $75 = $375
         assert market.buyers["Halcyon Assembly"].cash == pytest.approx(initial_cash - expected)
 
 
 class TestWidgetsAcquiredTracking:
     def test_accept_offer_increments_widgets_acquired(self):
         """Accepting an offer must increment widgets_acquired on the buyer."""
-        import numpy as np
-        from sanctuary.revelation import RevelationScheduler
-
         market = _simple_market(buyer_acquired=0)
-        rng = np.random.default_rng(42)
-        sched = RevelationScheduler(rng)
 
         offer = market.place_offer(
             seller="Meridian Manufacturing",
@@ -154,21 +149,13 @@ class TestWidgetsAcquiredTracking:
             price_per_unit=50.0,
             day=1,
         )
-        rev_day = sched.schedule(offer.offer_id, seller="Meridian Manufacturing",
-                                  buyer="Halcyon Assembly", claimed_quality="Excellent",
-                                  true_quality="Excellent", quantity=3, transaction_day=1)
-        market.accept_offer(offer.offer_id, revelation_day=rev_day, day=1)
+        market.accept_offer(offer.offer_id, revelation_day=6, day=1)
 
         assert market.buyers["Halcyon Assembly"].widgets_acquired == 3
 
     def test_multiple_transactions_accumulate(self):
         """widgets_acquired sums across multiple accepted offers."""
-        import numpy as np
-        from sanctuary.revelation import RevelationScheduler
-
         market = _simple_market(buyer_acquired=0)
-        rng = np.random.default_rng(99)
-        sched = RevelationScheduler(rng)
 
         for qty in [2, 3]:
             offer = market.place_offer(
@@ -180,9 +167,6 @@ class TestWidgetsAcquiredTracking:
                 price_per_unit=20.0,
                 day=1,
             )
-            rev = sched.schedule(offer.offer_id, seller="Meridian Manufacturing",
-                                   buyer="Halcyon Assembly", claimed_quality="Poor",
-                                   true_quality="Poor", quantity=qty, transaction_day=1)
-            market.accept_offer(offer.offer_id, revelation_day=rev, day=1)
+            market.accept_offer(offer.offer_id, revelation_day=6, day=1)
 
         assert market.buyers["Halcyon Assembly"].widgets_acquired == 5

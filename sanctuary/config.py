@@ -14,10 +14,10 @@ import yaml
 from pydantic import BaseModel, Field, field_validator
 
 
-# ── Sub-models ────────────────────────────────────────────────────────────────
+# -- Sub-models ----------------------------------------------------------------
 
 class ModelConfig(BaseModel):
-    provider: str           # "ollama" or "vllm"
+    provider: str           # "ollama", "vllm", or "anthropic"
     model: str
     temperature: float = 0.7
     max_tokens: int = 1024
@@ -45,16 +45,18 @@ class ModelsConfig(BaseModel):
     tactical: ModelConfig
 
 
+class ProtocolConfig(BaseModel):
+    system: str = "no_protocol"
+    description: str = ""
+
+
 class RunConfig(BaseModel):
     days: int = 30
-    strategic_tier_days: list[int] = Field(default_factory=lambda: [1, 8, 15, 22, 29])
+    strategic_tier_days: list[int] = Field(default_factory=lambda: [7, 14, 21, 28])
     max_sub_rounds: int = 2
     inactivity_nudge_threshold: int = 2
-    # Max concurrent LLM calls per tier.  Set to 1 for fully sequential
-    # (safest with Ollama on a single GPU running large models).
-    # Set higher when your inference backend actually serves requests in parallel
-    # (vLLM, or Ollama with OLLAMA_NUM_PARALLEL>1 and a capable GPU).
     max_parallel_llm_calls: int = 4
+    checkpoint_interval: int = 5
 
     @field_validator("days")
     @classmethod
@@ -67,23 +69,34 @@ class RunConfig(BaseModel):
 class EconomicsConfig(BaseModel):
     model_config = {"extra": "ignore"}   # ignore unknown fields (e.g. old buyer_fixed_daily_cost)
 
-    seller_starting_cash: float = 5_000.0
+    seller_starting_cash: list[float] = Field(
+        default_factory=lambda: [5_000.0, 4_500.0, 4_000.0, 3_500.0]
+    )
     seller_starting_factories: int = 1
     buyer_starting_cash: float = 6_000.0
     buyer_daily_production_cap: int = 3
-    factory_build_cost: float = 1_500.0
-    factory_build_days: int = 2
-    bankruptcy_threshold: float = -3_000.0
-    final_good_base_price_excellent: float = 90.0
-    final_good_base_price_poor: float = 52.0
-    price_walk_sigma: float = 1.0
+    factory_build_cost: float = 2_000.0
+    factory_build_days: int = 3
+    bankruptcy_threshold: float = -5_000.0
+    final_good_base_price_excellent: float = 55.0
+    final_good_base_price_poor: float = 32.0
+    starting_widgets_per_seller: int = 8
+
+    @field_validator("seller_starting_cash", mode="before")
+    @classmethod
+    def coerce_seller_cash(cls, v: Any) -> list[float]:
+        """Accept a single float (uniform) or a list of 4 floats (asymmetric)."""
+        if isinstance(v, (int, float)):
+            return [float(v)] * 4
+        if isinstance(v, list):
+            if len(v) != 4:
+                raise ValueError(f"seller_starting_cash must have exactly 4 entries, got {len(v)}")
+            return [float(x) for x in v]
+        raise ValueError(f"seller_starting_cash must be a number or list of 4 numbers, got {type(v)}")
 
 
 class SellerAgentConfig(BaseModel):
     name: str
-    starting_inventory: dict[str, int] = Field(
-        default_factory=lambda: {"excellent": 0, "poor": 0}
-    )
 
 
 class BuyerAgentConfig(BaseModel):
@@ -115,11 +128,12 @@ class SimulationConfig(BaseModel):
     models: ModelsConfig
     economics: EconomicsConfig = Field(default_factory=EconomicsConfig)
     agents: AgentsConfig
+    protocol: ProtocolConfig = Field(default_factory=ProtocolConfig)
 
     model_config = {"arbitrary_types_allowed": True}
 
 
-# ── Loader ────────────────────────────────────────────────────────────────────
+# -- Loader --------------------------------------------------------------------
 
 def load_config(path: str | Path) -> SimulationConfig:
     """

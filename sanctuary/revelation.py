@@ -2,40 +2,20 @@
 Quality revelation scheduling for the Sanctuary simulation.
 
 After a transaction, the true quality of the traded widgets is revealed
-publicly to all agents after a stochastic delay. The delay distribution is:
+publicly to all agents after a deterministic 5-day lag.
 
-    Delay (days):  1     2     3     4     5     6
-    Probability:   0.05  0.15  0.20  0.30  0.20  0.10
-
-Properties:
-  - Sum = 1.00
-  - Mode = 4 days
-  - Median = 4 days (CDF reaches 0.70 at day 4)
-
-This distribution is common knowledge. The specific realization for any
-given transaction is sampled at transaction time but not visible to agents
-until the revelation day arrives.
+This is common knowledge: all agents know quality is revealed on
+transaction_day + 5. The specific lag is fixed, not stochastic.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
-import numpy as np
-
-# ── Revelation delay distribution ────────────────────────────────────────────
-
-REVELATION_DELAYS: list[int] = [1, 2, 3, 4, 5, 6]
-REVELATION_PMF: list[float] = [0.05, 0.15, 0.20, 0.30, 0.20, 0.10]
-
-assert abs(sum(REVELATION_PMF) - 1.0) < 1e-9, "Revelation PMF must sum to 1.0"
-assert len(REVELATION_DELAYS) == len(REVELATION_PMF), "PMF length mismatch"
-
-_DELAYS_ARRAY = np.array(REVELATION_DELAYS)
-_PMF_ARRAY = np.array(REVELATION_PMF)
+from sanctuary.economics import REVELATION_LAG_DAYS
 
 
-# ── Data classes ──────────────────────────────────────────────────────────────
+# -- Data classes --------------------------------------------------------------
 
 @dataclass(frozen=True)
 class PendingRevelation:
@@ -72,18 +52,17 @@ class RevelationEvent:
         return self.claimed_quality != self.true_quality
 
 
-# ── Scheduler ────────────────────────────────────────────────────────────────
+# -- Scheduler -----------------------------------------------------------------
 
 class RevelationScheduler:
     """
     Maintains the pending revelation queue and fires events on the correct day.
 
-    Designed to be driven by a single master RNG so that the entire
-    revelation schedule is reproducible from a seed.
+    Uses a deterministic 5-day lag: revelation_day = transaction_day + 5.
+    No RNG needed.
     """
 
-    def __init__(self, rng: np.random.Generator) -> None:
-        self._rng = rng
+    def __init__(self) -> None:
         self._pending: list[PendingRevelation] = []
 
     def schedule(
@@ -99,12 +78,9 @@ class RevelationScheduler:
         """
         Schedule a revelation for a newly completed transaction.
 
-        Samples the delay from the PMF using the master RNG, records the
-        pending revelation, and returns the sampled revelation day so it can
-        be written into the transaction log.
+        Returns the revelation day (transaction_day + 5).
         """
-        delay = self._sample_delay()
-        revelation_day = transaction_day + delay
+        revelation_day = transaction_day + REVELATION_LAG_DAYS
         self._pending.append(
             PendingRevelation(
                 transaction_id=transaction_id,
@@ -123,11 +99,6 @@ class RevelationScheduler:
         """
         Return all revelations due on or before `day` and remove them
         from the pending queue.
-
-        In normal operation this is called once per simulated day with
-        `day = current_day`. The `<= day` guard handles any edge cases
-        where a revelation day was missed (e.g., agent bankruptcy removed
-        them from the day loop but revelations still propagate).
         """
         due: list[RevelationEvent] = []
         remaining: list[PendingRevelation] = []
@@ -157,8 +128,5 @@ class RevelationScheduler:
         return len(self._pending)
 
     def all_pending(self) -> list[PendingRevelation]:
-        """Read-only view of the pending queue (for logging)."""
+        """Read-only view of the pending queue (for logging/checkpointing)."""
         return list(self._pending)
-
-    def _sample_delay(self) -> int:
-        return int(self._rng.choice(_DELAYS_ARRAY, p=_PMF_ARRAY))

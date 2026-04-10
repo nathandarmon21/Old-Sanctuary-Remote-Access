@@ -27,14 +27,15 @@ from typing import Any, Literal
 
 from sanctuary.economics import (
     BANKRUPTCY_THRESHOLD,
-    BUYER_DAILY_QUOTA_PENALTY,
     BUYER_MAX_DAILY_PRODUCTION,
     BUYER_TERMINAL_QUOTA_PENALTY,
     BUYER_WIDGET_QUOTA,
     FACTORY_BUILD_COST,
     FACTORY_BUILD_DAYS,
     FINAL_GOOD_BASE_PRICES,
-    apply_price_walk,
+    MAX_TRANSACTIONS_PER_AGENT_PER_DAY,
+    SELLER_STARTING_CASH,
+    SELLER_STARTING_WIDGETS,
     daily_quota_penalty,
     end_of_run_write_off,
     factory_daily_capacity,
@@ -605,13 +606,14 @@ class MarketState:
     def apply_holding_costs(self) -> dict[str, float]:
         """
         Deduct daily holding costs from all active seller inventories.
+        Holding cost = 2% of production cost per unit per day.
         Returns {seller_name: cost_charged}.
         """
         costs: dict[str, float] = {}
         for name, seller in self.sellers.items():
             if seller.bankrupt:
                 continue
-            cost = total_holding_cost(seller.inventory)
+            cost = total_holding_cost(seller.inventory, seller.factories)
             seller.cash -= cost
             costs[name] = round(cost, 4)
         return costs
@@ -673,15 +675,6 @@ class MarketState:
                 newly_bankrupt.append(name)
 
         return newly_bankrupt
-
-    def advance_fg_prices(self, rng: np.random.Generator) -> dict[str, float]:
-        """
-        Apply one Brownian motion step to both final-good price series.
-        Returns the new prices.
-        """
-        self.fg_prices["Excellent"] = apply_price_walk(self.fg_prices["Excellent"], rng)
-        self.fg_prices["Poor"] = apply_price_walk(self.fg_prices["Poor"], rng)
-        return dict(self.fg_prices)
 
     def apply_end_of_run_write_offs(self) -> dict[str, float]:
         """
@@ -1044,32 +1037,51 @@ class MarketState:
 
 # ── Factory function ──────────────────────────────────────────────────────────
 
-def build_initial_market(config: dict) -> MarketState:
+def build_initial_market(
+    config: dict,
+    rng: np.random.Generator | None = None,
+) -> MarketState:
     """
     Construct the initial MarketState from a parsed config dict.
 
-    The config structure matches configs/dev_local.yaml and configs/production.yaml.
-    Starting inventories are assigned by the simulation loop (which has the RNG)
-    before any agents are called.
+    Seller starting cash is asymmetric (spec section 1.1).
+    Starting inventory is 8 widgets per seller with random quality mix
+    seeded from the master RNG.
+
+    Args:
+        config: parsed config dict (from config_to_dict or YAML).
+        rng: numpy RNG for random starting inventory assignment.
+             If None, defaults to equal split (4 Excellent, 4 Poor).
     """
     econ = config.get("economics", {})
-    seller_cash = float(econ.get("seller_starting_cash", 5_000.0))
     seller_factories = int(econ.get("seller_starting_factories", 1))
     buyer_cash = float(econ.get("buyer_starting_cash", 6_000.0))
+    widgets_per_seller = int(econ.get("starting_widgets_per_seller", SELLER_STARTING_WIDGETS))
 
     fg_excellent = float(econ.get("final_good_base_price_excellent", FINAL_GOOD_BASE_PRICES["Excellent"]))
     fg_poor = float(econ.get("final_good_base_price_poor", FINAL_GOOD_BASE_PRICES["Poor"]))
 
+    # Asymmetric seller starting cash
+    seller_cash_list = econ.get("seller_starting_cash", SELLER_STARTING_CASH)
+    if isinstance(seller_cash_list, (int, float)):
+        seller_cash_list = [float(seller_cash_list)] * 4
+
+    seller_configs = config.get("agents", {}).get("sellers", [])
     sellers: dict[str, SellerState] = {}
-    for sc in config.get("agents", {}).get("sellers", []):
-        inv_cfg = sc.get("starting_inventory", {})
+    for i, sc in enumerate(seller_configs):
+        cash = float(seller_cash_list[i]) if i < len(seller_cash_list) else 5_000.0
+
+        # Random starting inventory: each widget independently Excellent or Poor
+        if rng is not None:
+            excellent = int(rng.binomial(widgets_per_seller, 0.5))
+        else:
+            excellent = widgets_per_seller // 2
+        poor = widgets_per_seller - excellent
+
         sellers[sc["name"]] = SellerState(
             name=sc["name"],
-            cash=seller_cash,
-            inventory={
-                "Excellent": int(inv_cfg.get("excellent", 0)),
-                "Poor": int(inv_cfg.get("poor", 0)),
-            },
+            cash=cash,
+            inventory={"Excellent": excellent, "Poor": poor},
             factories=seller_factories,
         )
 

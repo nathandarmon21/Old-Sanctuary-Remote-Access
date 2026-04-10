@@ -1,8 +1,8 @@
 """
 Tests for sanctuary/config.py.
 
-Verifies that both dev_local.yaml and production.yaml load and validate
-cleanly, and that malformed configs raise the expected errors.
+Verifies that all YAML configs load and validate cleanly,
+and that malformed configs raise the expected errors.
 """
 
 from __future__ import annotations
@@ -24,6 +24,22 @@ class TestConfigLoading:
 
     def test_production_loads(self):
         config = load_config(_CONFIGS_DIR / "production.yaml")
+        assert isinstance(config, SimulationConfig)
+
+    def test_smoke_haiku_loads(self):
+        config = load_config(_CONFIGS_DIR / "smoke_haiku.yaml")
+        assert isinstance(config, SimulationConfig)
+
+    def test_smoke_3day_loads(self):
+        config = load_config(_CONFIGS_DIR / "smoke_3day.yaml")
+        assert isinstance(config, SimulationConfig)
+
+    def test_dev_haiku_loads(self):
+        config = load_config(_CONFIGS_DIR / "dev_haiku.yaml")
+        assert isinstance(config, SimulationConfig)
+
+    def test_dev_available_loads(self):
+        config = load_config(_CONFIGS_DIR / "dev_available.yaml")
         assert isinstance(config, SimulationConfig)
 
     def test_dev_local_has_correct_agents(self):
@@ -52,36 +68,59 @@ class TestConfigLoading:
     def test_dev_local_economics(self):
         config = load_config(_CONFIGS_DIR / "dev_local.yaml")
         econ = config.economics
-        assert econ.seller_starting_cash == 5_000.0
-        assert econ.buyer_starting_cash == 6_000.0
-        assert econ.bankruptcy_threshold == -3_000.0
-        assert econ.final_good_base_price_excellent == 90.0
-        assert econ.final_good_base_price_poor == 52.0
+        assert econ.seller_starting_cash == [5000.0, 4500.0, 4000.0, 3500.0]
+        assert econ.buyer_starting_cash == 6000.0
+        assert econ.bankruptcy_threshold == -5000.0
+        assert econ.final_good_base_price_excellent == 55.0
+        assert econ.final_good_base_price_poor == 32.0
+        assert econ.factory_build_cost == 2000.0
+        assert econ.factory_build_days == 3
+        assert econ.starting_widgets_per_seller == 8
 
     def test_strategic_tier_days(self):
         config = load_config(_CONFIGS_DIR / "dev_local.yaml")
-        assert config.run.strategic_tier_days == [1, 8, 15, 22, 29]
+        assert config.run.strategic_tier_days == [7, 14, 21, 28]
+
+    def test_protocol_default(self):
+        config = load_config(_CONFIGS_DIR / "dev_local.yaml")
+        assert config.protocol.system == "no_protocol"
+
+    def test_asymmetric_seller_cash(self):
+        config = load_config(_CONFIGS_DIR / "dev_local.yaml")
+        cash = config.economics.seller_starting_cash
+        assert len(cash) == 4
+        assert cash[0] == 5000.0
+        assert cash[3] == 3500.0
+
+    def test_uniform_seller_cash_coercion(self):
+        """A single float for seller_starting_cash is expanded to a list of 4."""
+        raw = {
+            "models": {
+                "strategic": {"provider": "ollama", "model": "test"},
+                "tactical": {"provider": "ollama", "model": "test"},
+            },
+            "economics": {"seller_starting_cash": 5000.0},
+            "agents": {
+                "sellers": [{"name": f"S{i}"} for i in range(4)],
+                "buyers": [{"name": f"B{i}"} for i in range(4)],
+            },
+        }
+        config = SimulationConfig.model_validate(raw)
+        assert config.economics.seller_starting_cash == [5000.0] * 4
 
     def test_missing_file_raises(self):
         with pytest.raises(FileNotFoundError):
             load_config("configs/does_not_exist.yaml")
 
     def test_four_sellers_required(self):
-        """Config validation rejects fewer or more than 4 sellers."""
         raw = {
             "models": {
                 "strategic": {"provider": "ollama", "model": "test"},
                 "tactical": {"provider": "ollama", "model": "test"},
             },
             "agents": {
-                "sellers": [
-                    {"name": "S1"},
-                    {"name": "S2"},
-                    # only 2 sellers — should fail
-                ],
-                "buyers": [
-                    {"name": "B1"}, {"name": "B2"}, {"name": "B3"}, {"name": "B4"},
-                ],
+                "sellers": [{"name": "S1"}, {"name": "S2"}],
+                "buyers": [{"name": f"B{i}"} for i in range(4)],
             },
         }
         with pytest.raises(ValidationError, match="4 sellers"):
@@ -90,7 +129,7 @@ class TestConfigLoading:
     def test_unknown_provider_rejected(self):
         raw = {
             "models": {
-                "strategic": {"provider": "openai", "model": "gpt-4"},  # unknown
+                "strategic": {"provider": "openai", "model": "gpt-4"},
                 "tactical": {"provider": "ollama", "model": "test"},
             },
             "agents": {

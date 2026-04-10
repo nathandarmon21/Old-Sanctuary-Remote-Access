@@ -1,5 +1,5 @@
 """
-Tests for MarketState.summary_for_agent — the authoritative ground-truth
+Tests for MarketState.summary_for_agent -- the authoritative ground-truth
 state header injected into every tactical and strategic prompt.
 
 The contract: given a specific MarketState, summary_for_agent returns a
@@ -71,7 +71,7 @@ class TestSummaryForSeller:
 
     def test_contains_days_remaining(self):
         market = _make_market()
-        # day=9, days_total=30 → 22 remaining
+        # day=9, days_total=30 -> 22 remaining
         summary = market.summary_for_agent("Meridian Manufacturing", day=9, days_total=30)
         assert "22" in summary
 
@@ -96,17 +96,17 @@ class TestSummaryForBuyer:
     def test_contains_quota_progress(self):
         market = _make_market()
         summary = market.summary_for_agent("Halcyon Assembly", day=9, days_total=30)
-        assert "7 / 30" in summary
+        # Quota is 20, acquired 7
+        assert "7 / 20" in summary
 
     def test_contains_widgets_still_needed(self):
         market = _make_market()
-        # 30 - 7 = 23 still needed
+        # 20 - 7 = 13 still needed
         summary = market.summary_for_agent("Halcyon Assembly", day=9, days_total=30)
-        assert "23" in summary
+        assert "13" in summary
 
     def test_contains_days_remaining(self):
         market = _make_market()
-        # day=9, days_total=30 → 22 remaining
         summary = market.summary_for_agent("Halcyon Assembly", day=9, days_total=30)
         assert "22" in summary
 
@@ -130,7 +130,7 @@ class TestSummaryForBuyer:
                 quantity=4,
                 quantity_remaining=4,
                 claimed_quality="Excellent",
-                true_quality=None,   # not yet revealed
+                true_quality=None,
                 day_purchased=5,
             )
         )
@@ -148,11 +148,10 @@ class TestSummaryForBuyer:
                 quantity=2,
                 quantity_remaining=2,
                 claimed_quality="Excellent",
-                true_quality="Poor",   # misrepresented, revealed
+                true_quality="Poor",
                 day_purchased=3,
             )
         )
-        # Add a transaction record so revelation_day can be looked up
         market.transactions.append(TransactionRecord(
             transaction_id="tx-002",
             seller="Meridian Manufacturing",
@@ -162,17 +161,16 @@ class TestSummaryForBuyer:
             true_quality="Poor",
             price_per_unit=50.0,
             day=3,
-            revelation_day=7,
+            revelation_day=8,
         ))
         summary = market.summary_for_agent("Halcyon Assembly", day=9, days_total=30)
         assert "Poor" in summary
-        assert "7" in summary          # revelation day
+        assert "8" in summary          # revelation day
         assert "MISREPRESENTED" in summary
 
     def test_final_goods_production_totals(self):
         """Final goods count and revenue appear in buyer summary."""
         market = _make_market()
-        # Manually add production records
         market.buyers["Halcyon Assembly"].produced_goods_records.append(
             FinalGoodsRecord(
                 record_id="rec-001",
@@ -182,14 +180,14 @@ class TestSummaryForBuyer:
                 lot_id="lot-x",
                 transaction_id="tx-x",
                 assumed_quality="Excellent",
-                fg_prices_at_production={"Excellent": 90.0, "Poor": 52.0},
-                revenue_recorded=180.0,
+                fg_prices_at_production={"Excellent": 55.0, "Poor": 32.0},
+                revenue_recorded=110.0,
                 adjustment_applied=True,
             )
         )
         summary = market.summary_for_agent("Halcyon Assembly", day=9, days_total=30)
         assert "2" in summary       # quantity
-        assert "180.00" in summary  # revenue
+        assert "110.00" in summary  # revenue
 
     def test_unknown_agent_raises(self):
         market = _make_market()
@@ -206,25 +204,21 @@ class TestProfitSummary:
     """Tests for the [PROFIT SUMMARY] block in summary_for_agent."""
 
     def test_zero_transaction_baseline_seller(self):
-        """With no transactions, seller shows $0 revenue and $0 gross profit minus production costs."""
+        """With no transactions, seller shows $0 revenue."""
         market = _make_market()
-        # Add some production costs without any sales
         market.sellers["Meridian Manufacturing"].production_costs_incurred = 50.0
         summary = market.summary_for_agent("Meridian Manufacturing", day=5, days_total=30)
         assert "[PROFIT SUMMARY]" in summary
         assert "Revenue from sales: $0.00" in summary
         assert "50.00" in summary  # production costs
-        # gross profit = 0 - 50 - 1*1500 = -1550 (1 factory build beyond base from fixture: factories=2)
-        # factories_built = 2 - 1 + 1 (queue=[17]) = 2; factory_capital = 3000
         assert "Production costs incurred: $50.00" in summary
 
     def test_seller_one_excellent_transaction(self):
-        """Seller sells 1 Excellent at $80; production cost was $25 (1 factory); gross profit = $55."""
+        """Seller sells 1 Excellent at $50; production cost $30 (1 factory); gross profit = $20."""
         market = _make_market()
-        # Simplify: 1 factory, no build queue, 1 unit sold at $80, cost $25
         market.sellers["Meridian Manufacturing"].factories = 1
         market.sellers["Meridian Manufacturing"].factory_build_queue = []
-        market.sellers["Meridian Manufacturing"].production_costs_incurred = 25.0
+        market.sellers["Meridian Manufacturing"].production_costs_incurred = 30.0
         market.transactions.append(TransactionRecord(
             transaction_id="tx-profit-001",
             seller="Meridian Manufacturing",
@@ -232,20 +226,19 @@ class TestProfitSummary:
             quantity=1,
             claimed_quality="Excellent",
             true_quality="Excellent",
-            price_per_unit=80.0,
+            price_per_unit=50.0,
             day=2,
-            revelation_day=5,
+            revelation_day=7,
         ))
         summary = market.summary_for_agent("Meridian Manufacturing", day=5, days_total=30)
-        assert "Revenue from sales: $80.00" in summary
-        assert "Production costs incurred: $25.00" in summary
-        # factory_capital = 0 (no builds beyond base); gross = 80 - 25 - 0 = 55
-        assert "Gross profit: $55.00" in summary
+        assert "Revenue from sales: $50.00" in summary
+        assert "Production costs incurred: $30.00" in summary
+        # factory_capital = 0 (no builds beyond base); gross = 50 - 30 - 0 = 20
+        assert "Gross profit: $20.00" in summary
 
-    def test_buyer_pays_80_produces_at_90_net_10(self):
-        """Buyer pays $80 for 1 Excellent widget, produces final good at $90, net = $10."""
+    def test_buyer_profit_summary(self):
+        """Buyer pays $45 for 1 widget, produces final good at $55, net = $10."""
         market = _make_market()
-        # Clear existing penalties, zero starting widgets
         market.buyers["Halcyon Assembly"].penalties_accrued = 0.0
         market.buyers["Halcyon Assembly"].widgets_acquired = 1
         market.transactions.append(TransactionRecord(
@@ -255,9 +248,9 @@ class TestProfitSummary:
             quantity=1,
             claimed_quality="Excellent",
             true_quality="Excellent",
-            price_per_unit=80.0,
+            price_per_unit=45.0,
             day=2,
-            revelation_day=5,
+            revelation_day=7,
         ))
         market.buyers["Halcyon Assembly"].produced_goods_records.append(
             FinalGoodsRecord(
@@ -268,15 +261,15 @@ class TestProfitSummary:
                 lot_id="lot-p",
                 transaction_id="tx-buyer-profit",
                 assumed_quality="Excellent",
-                fg_prices_at_production={"Excellent": 90.0, "Poor": 52.0},
-                revenue_recorded=90.0,
+                fg_prices_at_production={"Excellent": 55.0, "Poor": 32.0},
+                revenue_recorded=55.0,
                 adjustment_applied=False,
             )
         )
         summary = market.summary_for_agent("Halcyon Assembly", day=5, days_total=30)
         assert "[PROFIT SUMMARY]" in summary
-        assert "Final-goods revenue: $90.00" in summary
-        assert "Widget acquisition costs: $80.00" in summary
+        assert "Final-goods revenue: $55.00" in summary
+        assert "Widget acquisition costs: $45.00" in summary
         assert "Quota penalties incurred: $0.00" in summary
         assert "Net profit: $10.00" in summary
 
@@ -286,11 +279,11 @@ class TestProfitSummary:
         market.sellers["Meridian Manufacturing"].factories = 1
         market.sellers["Meridian Manufacturing"].factory_build_queue = []
         summary = market.summary_for_agent("Meridian Manufacturing", day=1, days_total=30)
-        # production_cost("Excellent", 1) = 25.0; production_cost("Excellent", 2) = 23.0 → save $2.00
-        # break-even = 1500 / 2.00 = 750 units
+        # production_cost("Excellent", 1) = $30; production_cost("Excellent", 2) = $27 -> save $3.00
+        # break-even = $2000 / $3.00 = 666 units
         assert "Factory ROI" in summary
-        assert "750" in summary  # break-even for Excellent units
-        assert "$2.00/Excellent unit" in summary
+        assert "666" in summary
+        assert "$3.00/Excellent unit" in summary
 
     def test_seller_factory_roi_at_floor(self):
         """At 4 factories, ROI line says no further savings."""
@@ -301,14 +294,14 @@ class TestProfitSummary:
         assert "at minimum cost" in summary
 
     def test_buyer_quota_penalty_exposure(self):
-        """Buyer with 7/30 quota on day 9 with 22 days remaining shows correct exposure."""
+        """Buyer with 7/20 quota on day 9 with 22 days remaining shows correct exposure."""
         market = _make_market()
         # BuyerState: widgets_acquired=7, penalties_accrued=138.00
-        # quota_remaining = 23; current_daily = 23 * $2 = $46/day
+        # quota_remaining = 20 - 7 = 13; current_daily = 13 * $2 = $26/day
         # days_remaining = 30 - 9 + 1 = 22
-        # flow_exp = 46 * 22 = 1012; terminal = 23 * 60 = 1380; total = 2392
+        # flow_exp = $26 * 22 = $572; terminal = 13 * $75 = $975; total = $1,547
         summary = market.summary_for_agent("Halcyon Assembly", day=9, days_total=30)
         assert "Quota penalty exposure" in summary
-        assert "1,012.00" in summary   # flow exposure
-        assert "1,380.00" in summary   # terminal exposure
-        assert "2,392.00" in summary   # total
+        assert "572.00" in summary   # flow exposure
+        assert "975.00" in summary   # terminal exposure
+        assert "1,547.00" in summary   # total

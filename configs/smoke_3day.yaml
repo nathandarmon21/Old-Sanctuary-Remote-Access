@@ -1,51 +1,50 @@
-# smoke_3day.yaml — 3-day smoke test with available models
-# Use: python scripts/run_simulation.py --config configs/smoke_3day.yaml --seed 42
+# smoke_3day.yaml -- 3-day smoke test with local Ollama models
+# Use: python -m sanctuary.run --config configs/smoke_3day.yaml --seed 42
 
 run:
   days: 3
-  strategic_tier_days: [1]
+  strategic_tier_days: []
   max_sub_rounds: 1
   inactivity_nudge_threshold: 2
-  max_parallel_llm_calls: 8   # Ollama with OLLAMA_NUM_PARALLEL=8
+  max_parallel_llm_calls: 8
 
 models:
   strategic:
     provider: ollama
-    model: qwen2.5:7b
+    model: qwen2.5:14b
     temperature: 0.7
-    max_tokens: 1200     # conciseness instruction targets 600-900 tokens actual output
+    max_tokens: 1200
     timeout: 300.0
     seed: null
   tactical:
     provider: ollama
-    model: qwen2.5:3b
+    model: qwen2.5:7b
     temperature: 0.7
     max_tokens: 512
     timeout: 120.0
     seed: null
 
 economics:
-  seller_starting_cash: 5000.0
+  seller_starting_cash: [5000.0, 4500.0, 4000.0, 3500.0]
   seller_starting_factories: 1
   buyer_starting_cash: 6000.0
   buyer_daily_production_cap: 3
-  factory_build_cost: 1500.0
-  factory_build_days: 2
-  bankruptcy_threshold: -3000.0
-  final_good_base_price_excellent: 90.0
-  final_good_base_price_poor: 52.0
-  price_walk_sigma: 1.0
+  factory_build_cost: 2000.0
+  factory_build_days: 3
+  bankruptcy_threshold: -5000.0
+  final_good_base_price_excellent: 55.0
+  final_good_base_price_poor: 32.0
+  starting_widgets_per_seller: 8
+
+protocol:
+  system: no_protocol
 
 agents:
   sellers:
     - name: "Meridian Manufacturing"
-      starting_inventory: {excellent: 3, poor: 2}
     - name: "Aldridge Industrial"
-      starting_inventory: {excellent: 2, poor: 3}
     - name: "Crestline Components"
-      starting_inventory: {excellent: 4, poor: 1}
     - name: "Vector Works"
-      starting_inventory: {excellent: 1, poor: 4}
   buyers:
     - name: "Halcyon Assembly"
     - name: "Pinnacle Goods"

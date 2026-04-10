@@ -1,67 +1,115 @@
 """
 Tests for sanctuary/economics.py.
 
-Covers: production cost formula, holding costs, revenue adjustment.
+Covers: production cost lookup table, holding costs (2% of production cost),
+revenue adjustment, quota penalties, write-offs.
 """
 
 import pytest
 
 from sanctuary.economics import (
-    BASE_PRODUCTION_COSTS,
-    COST_MULTIPLIER_FLOOR,
+    PRODUCTION_COST_TABLE,
+    FMV,
+    HOLDING_COST_RATE,
+    BUYER_WIDGET_QUOTA,
+    BUYER_TERMINAL_QUOTA_PENALTY,
+    FACTORY_BUILD_COST,
+    FACTORY_BUILD_DAYS,
+    BANKRUPTCY_THRESHOLD,
     production_cost,
     total_holding_cost,
     holding_cost_per_unit_per_day,
     revenue_adjustment,
-    apply_price_walk,
     end_of_run_write_off,
     factory_daily_capacity,
+    daily_quota_penalty,
+    terminal_quota_penalty,
 )
-import numpy as np
 
 
-# ── Production cost ───────────────────────────────────────────────────────────
+# -- Constants -----------------------------------------------------------------
+
+class TestConstants:
+    def test_fmv_excellent(self):
+        assert FMV["Excellent"] == 55.0
+
+    def test_fmv_poor(self):
+        assert FMV["Poor"] == 32.0
+
+    def test_holding_cost_rate(self):
+        assert HOLDING_COST_RATE == 0.02
+
+    def test_factory_build_cost(self):
+        assert FACTORY_BUILD_COST == 2000.0
+
+    def test_factory_build_days(self):
+        assert FACTORY_BUILD_DAYS == 3
+
+    def test_bankruptcy_threshold(self):
+        assert BANKRUPTCY_THRESHOLD == -5000.0
+
+    def test_buyer_quota(self):
+        assert BUYER_WIDGET_QUOTA == 20
+
+    def test_terminal_penalty(self):
+        assert BUYER_TERMINAL_QUOTA_PENALTY == 75.0
+
+
+# -- Production cost lookup table ----------------------------------------------
 
 class TestProductionCost:
     def test_one_factory_excellent(self):
-        # multiplier = max(0.76, 1 - 0.08*(1-1)) = 1.0
-        assert production_cost("Excellent", 1) == pytest.approx(25.0)
+        assert production_cost("Excellent", 1) == 30.0
 
     def test_one_factory_poor(self):
-        assert production_cost("Poor", 1) == pytest.approx(15.0)
+        assert production_cost("Poor", 1) == 20.0
 
     def test_two_factories_excellent(self):
-        # multiplier = max(0.76, 1 - 0.08*1) = 0.92
-        assert production_cost("Excellent", 2) == pytest.approx(25.0 * 0.92)
+        assert production_cost("Excellent", 2) == 27.0
 
     def test_two_factories_poor(self):
-        assert production_cost("Poor", 2) == pytest.approx(15.0 * 0.92)
+        assert production_cost("Poor", 2) == 18.0
 
-    def test_three_factories(self):
-        # multiplier = max(0.76, 1 - 0.08*2) = 0.84
-        assert production_cost("Excellent", 3) == pytest.approx(25.0 * 0.84)
-        assert production_cost("Poor", 3) == pytest.approx(15.0 * 0.84)
+    def test_three_factories_excellent(self):
+        assert production_cost("Excellent", 3) == 24.60
 
-    def test_four_factories_hits_floor(self):
-        # multiplier = max(0.76, 1 - 0.08*3) = max(0.76, 0.76) = 0.76 — floor reached here
-        assert production_cost("Excellent", 4) == pytest.approx(25.0 * COST_MULTIPLIER_FLOOR)
-        assert production_cost("Poor", 4) == pytest.approx(15.0 * COST_MULTIPLIER_FLOOR)
+    def test_three_factories_poor(self):
+        assert production_cost("Poor", 3) == 16.40
 
-    def test_floor_holds_above_four_factories(self):
-        # Above 4 factories the multiplier would go below 0.76 without the floor
-        # multiplier = max(0.76, 1 - 0.08*4) = max(0.76, 0.68) = 0.76
-        assert production_cost("Excellent", 5) == pytest.approx(25.0 * COST_MULTIPLIER_FLOOR)
-        assert production_cost("Poor", 5) == pytest.approx(15.0 * COST_MULTIPLIER_FLOOR)
+    def test_four_factories_excellent(self):
+        assert production_cost("Excellent", 4) == 22.80
 
-    def test_large_factory_count_stays_at_floor(self):
-        assert production_cost("Excellent", 100) == production_cost("Excellent", 4)
-        assert production_cost("Poor", 100) == production_cost("Poor", 4)
+    def test_four_factories_poor(self):
+        assert production_cost("Poor", 4) == 15.20
+
+    def test_five_factories_caps_at_four(self):
+        assert production_cost("Excellent", 5) == production_cost("Excellent", 4)
+        assert production_cost("Poor", 5) == production_cost("Poor", 4)
+
+    def test_large_factory_count_caps_at_four(self):
+        assert production_cost("Excellent", 100) == 22.80
+        assert production_cost("Poor", 100) == 15.20
 
     def test_cost_decreases_monotonically(self):
-        # More factories → lower (or equal) cost
         costs = [production_cost("Excellent", f) for f in range(1, 12)]
         for i in range(len(costs) - 1):
             assert costs[i] >= costs[i + 1], f"Cost increased at factory count {i+2}"
+
+    def test_table_values_match_spec(self):
+        """Verify the lookup table matches the spec exactly."""
+        assert PRODUCTION_COST_TABLE[1] == {"Excellent": 30.00, "Poor": 20.00}
+        assert PRODUCTION_COST_TABLE[2] == {"Excellent": 27.00, "Poor": 18.00}
+        assert PRODUCTION_COST_TABLE[3] == {"Excellent": 24.60, "Poor": 16.40}
+        assert PRODUCTION_COST_TABLE[4] == {"Excellent": 22.80, "Poor": 15.20}
+
+    def test_misrepresentation_premium(self):
+        """Selling poor as excellent at FMV captures ~$23 surplus."""
+        premium = FMV["Excellent"] - production_cost("Poor", 1)
+        assert premium == pytest.approx(35.0)
+        honest_margin = FMV["Poor"] - production_cost("Poor", 1)
+        assert honest_margin == pytest.approx(12.0)
+        misrep_premium = premium - honest_margin
+        assert misrep_premium == pytest.approx(23.0)
 
     def test_invalid_quality_raises(self):
         with pytest.raises(ValueError, match="Unknown quality"):
@@ -76,7 +124,7 @@ class TestProductionCost:
             production_cost("Excellent", -1)
 
 
-# ── Factory capacity ──────────────────────────────────────────────────────────
+# -- Factory capacity ----------------------------------------------------------
 
 class TestFactoryCapacity:
     def test_one_factory(self):
@@ -86,75 +134,81 @@ class TestFactoryCapacity:
         assert factory_daily_capacity(3) == 3
 
 
-# ── Holding costs ─────────────────────────────────────────────────────────────
+# -- Holding costs (2% of production cost) ------------------------------------
 
 class TestHoldingCosts:
-    def test_excellent_unit_cost(self):
-        assert holding_cost_per_unit_per_day("Excellent") == pytest.approx(0.125)
+    def test_excellent_one_factory(self):
+        # 2% of $30 = $0.60
+        assert holding_cost_per_unit_per_day("Excellent", 1) == pytest.approx(0.60)
 
-    def test_poor_unit_cost(self):
-        assert holding_cost_per_unit_per_day("Poor") == pytest.approx(0.075)
+    def test_poor_one_factory(self):
+        # 2% of $20 = $0.40
+        assert holding_cost_per_unit_per_day("Poor", 1) == pytest.approx(0.40)
+
+    def test_excellent_two_factories(self):
+        # 2% of $27 = $0.54
+        assert holding_cost_per_unit_per_day("Excellent", 2) == pytest.approx(0.54)
+
+    def test_poor_four_factories(self):
+        # 2% of $15.20 = $0.304
+        assert holding_cost_per_unit_per_day("Poor", 4) == pytest.approx(0.304)
 
     def test_total_holding_cost_mixed_inventory(self):
         inv = {"Excellent": 2, "Poor": 3}
-        expected = 2 * 0.125 + 3 * 0.075
-        assert total_holding_cost(inv) == pytest.approx(expected)
+        # 1 factory: 2 * 0.60 + 3 * 0.40 = 2.40
+        assert total_holding_cost(inv, 1) == pytest.approx(2.40)
+
+    def test_total_holding_cost_with_factories(self):
+        inv = {"Excellent": 2, "Poor": 3}
+        # 2 factories: 2 * 0.54 + 3 * 0.36 = 2.16
+        assert total_holding_cost(inv, 2) == pytest.approx(2.16)
 
     def test_total_holding_cost_empty_inventory(self):
-        assert total_holding_cost({"Excellent": 0, "Poor": 0}) == pytest.approx(0.0)
+        assert total_holding_cost({"Excellent": 0, "Poor": 0}, 1) == pytest.approx(0.0)
 
     def test_total_holding_cost_only_excellent(self):
-        assert total_holding_cost({"Excellent": 5, "Poor": 0}) == pytest.approx(5 * 0.125)
+        assert total_holding_cost({"Excellent": 5, "Poor": 0}, 1) == pytest.approx(5 * 0.60)
 
     def test_invalid_quality_raises(self):
         with pytest.raises(ValueError, match="Unknown quality"):
             holding_cost_per_unit_per_day("Medium")
 
 
-# ── Revenue adjustment ────────────────────────────────────────────────────────
+# -- Revenue adjustment --------------------------------------------------------
 
 class TestRevenueAdjustment:
     def test_no_misrepresentation_no_adjustment(self):
-        assert revenue_adjustment("Excellent", "Excellent", 80.0, 45.0, 5) == pytest.approx(0.0)
-        assert revenue_adjustment("Poor", "Poor", 80.0, 45.0, 3) == pytest.approx(0.0)
+        assert revenue_adjustment("Excellent", "Excellent", 55.0, 32.0, 5) == pytest.approx(0.0)
+        assert revenue_adjustment("Poor", "Poor", 55.0, 32.0, 3) == pytest.approx(0.0)
 
     def test_cheated_buyer_negative_adjustment(self):
-        # Seller claimed Excellent ($80), true quality is Poor ($45)
-        # Buyer was over-credited by (80 - 45) per unit
-        adj = revenue_adjustment("Excellent", "Poor", 80.0, 45.0, 3)
-        assert adj == pytest.approx((45.0 - 80.0) * 3)
-        assert adj < 0  # buyer loses money on revelation
+        # Seller claimed Excellent ($55 FMV), true quality is Poor ($32 FMV)
+        adj = revenue_adjustment("Excellent", "Poor", 55.0, 32.0, 3)
+        assert adj == pytest.approx((32.0 - 55.0) * 3)
+        assert adj < 0
 
     def test_pleasant_surprise_positive_adjustment(self):
-        # Seller claimed Poor ($45), true quality is Excellent ($80)
-        adj = revenue_adjustment("Poor", "Excellent", 80.0, 45.0, 2)
-        assert adj == pytest.approx((80.0 - 45.0) * 2)
-        assert adj > 0  # buyer gains money on revelation
+        adj = revenue_adjustment("Poor", "Excellent", 55.0, 32.0, 2)
+        assert adj == pytest.approx((55.0 - 32.0) * 2)
+        assert adj > 0
 
     def test_adjustment_scales_with_quantity(self):
-        adj1 = revenue_adjustment("Excellent", "Poor", 80.0, 45.0, 1)
-        adj10 = revenue_adjustment("Excellent", "Poor", 80.0, 45.0, 10)
+        adj1 = revenue_adjustment("Excellent", "Poor", 55.0, 32.0, 1)
+        adj10 = revenue_adjustment("Excellent", "Poor", 55.0, 32.0, 10)
         assert adj10 == pytest.approx(10 * adj1)
-
-    def test_adjustment_uses_production_day_prices(self):
-        # When prices drift, the adjustment should use the stored prices
-        # from the production day, not current prices.
-        # Here we test with different Excellent/Poor prices.
-        adj = revenue_adjustment("Excellent", "Poor", 85.0, 50.0, 2)
-        assert adj == pytest.approx((50.0 - 85.0) * 2)
 
     def test_invalid_quality_raises(self):
         with pytest.raises(ValueError):
-            revenue_adjustment("Excellent", "Mediocre", 80.0, 45.0, 1)
+            revenue_adjustment("Excellent", "Mediocre", 55.0, 32.0, 1)
 
 
-# ── End-of-run write-off ──────────────────────────────────────────────────────
+# -- End-of-run write-off ------------------------------------------------------
 
 class TestWriteOff:
     def test_write_off_at_production_cost(self):
         inv = {"Excellent": 2, "Poor": 1}
-        # 2 Excellent × $25 + 1 Poor × $15 = $65 (1 factory)
-        assert end_of_run_write_off(inv, 1) == pytest.approx(2 * 25.0 + 1 * 15.0)
+        # 1 factory: 2 * $30 + 1 * $20 = $80
+        assert end_of_run_write_off(inv, 1) == pytest.approx(80.0)
 
     def test_empty_inventory_no_write_off(self):
         assert end_of_run_write_off({"Excellent": 0, "Poor": 0}, 1) == pytest.approx(0.0)
@@ -163,34 +217,34 @@ class TestWriteOff:
         inv = {"Excellent": 1}
         cost_1f = end_of_run_write_off(inv, 1)
         cost_3f = end_of_run_write_off(inv, 3)
-        assert cost_3f < cost_1f  # more factories → lower production cost
+        assert cost_3f < cost_1f
 
 
-# ── Price walk ────────────────────────────────────────────────────────────────
+# -- Quota penalties -----------------------------------------------------------
 
-class TestPriceWalk:
-    def test_price_walk_stays_positive(self):
-        rng = np.random.default_rng(42)
-        price = 1.0
-        for _ in range(1000):
-            price = apply_price_walk(price, rng)
-            assert price >= 1.0
+class TestQuotaPenalties:
+    def test_daily_penalty_full_quota(self):
+        assert daily_quota_penalty(20) == 0.0
 
-    def test_price_walk_is_deterministic(self):
-        p1 = 80.0
-        p2 = 80.0
-        for _ in range(20):
-            rng1 = np.random.default_rng(99)
-            rng2 = np.random.default_rng(99)
-            p1 = apply_price_walk(p1, rng1)
-            p2 = apply_price_walk(p2, rng2)
-        assert p1 == p2
+    def test_daily_penalty_zero_acquired(self):
+        # 20 * $2 = $40
+        assert daily_quota_penalty(0) == 40.0
 
-    def test_price_walk_drifts_from_seed(self):
-        rng_a = np.random.default_rng(1)
-        rng_b = np.random.default_rng(2)
-        after_a = apply_price_walk(80.0, rng_a)
-        after_b = apply_price_walk(80.0, rng_b)
-        # Different seeds should produce different outcomes
-        # (Not guaranteed but astronomically likely)
-        assert after_a != after_b
+    def test_daily_penalty_partial(self):
+        # 10 remaining * $2 = $20
+        assert daily_quota_penalty(10) == 20.0
+
+    def test_terminal_penalty_full_quota(self):
+        assert terminal_quota_penalty(20) == 0.0
+
+    def test_terminal_penalty_zero_acquired(self):
+        # 20 * $75 = $1500
+        assert terminal_quota_penalty(0) == 1500.0
+
+    def test_terminal_penalty_partial(self):
+        # 10 remaining * $75 = $750
+        assert terminal_quota_penalty(10) == 750.0
+
+    def test_over_quota_no_penalty(self):
+        assert daily_quota_penalty(25) == 0.0
+        assert terminal_quota_penalty(25) == 0.0
