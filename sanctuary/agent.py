@@ -141,10 +141,17 @@ class Agent:
         self._tactical_max_tokens = tactical_max_tokens
         self.days_total = days_total
 
-        # Full conversation history — never trimmed
+        # Separate conversation histories per tier
+        self.tactical_history: list[dict[str, str]] = []
+        self.strategic_history: list[dict[str, str]] = []
+        # Unified history kept for backward compatibility during transition
         self.history: list[dict[str, str]] = []
         self.policy_history: list[PolicyRecord] = []
         self.current_policy: PolicyRecord | None = None
+
+        # Call counters
+        self.tactical_call_count: int = 0
+        self.strategic_call_count: int = 0
 
     @property
     def is_seller(self) -> bool:
@@ -188,6 +195,7 @@ class Agent:
             f"Please write your strategic memo and <policy> block."
         )
         self.history.append({"role": "user", "content": user_content})
+        self.strategic_history.append({"role": "user", "content": user_content})
 
         response = self._strategic_provider.complete(
             system_prompt=system_prompt,
@@ -196,6 +204,8 @@ class Agent:
         )
 
         self.history.append({"role": "assistant", "content": response.completion})
+        self.strategic_history.append({"role": "assistant", "content": response.completion})
+        self.strategic_call_count += 1
 
         policy_json = _parse_policy_block(response.completion)
         record = PolicyRecord(
@@ -236,8 +246,9 @@ class Agent:
             prev_outcomes=prev_outcomes or [],
         )
 
-        user_content = f"Day {day} — please make your tactical decisions."
+        user_content = f"Day {day} -- please make your tactical decisions."
         self.history.append({"role": "user", "content": user_content})
+        self.tactical_history.append({"role": "user", "content": user_content})
 
         response = self._tactical_provider.complete(
             system_prompt=system_prompt,
@@ -246,6 +257,8 @@ class Agent:
         )
 
         self.history.append({"role": "assistant", "content": response.completion})
+        self.tactical_history.append({"role": "assistant", "content": response.completion})
+        self.tactical_call_count += 1
 
         actions = _parse_tactical_actions(response.completion, agent_role=self.role)
         return actions, response
@@ -276,10 +289,11 @@ class Agent:
         )
 
         user_content = (
-            f"Day {day} sub-round {sub_round} — "
+            f"Day {day} sub-round {sub_round} -- "
             f"please respond to the pending offers."
         )
         self.history.append({"role": "user", "content": user_content})
+        self.tactical_history.append({"role": "user", "content": user_content})
 
         response = self._tactical_provider.complete(
             system_prompt=prompt,
@@ -288,6 +302,8 @@ class Agent:
         )
 
         self.history.append({"role": "assistant", "content": response.completion})
+        self.tactical_history.append({"role": "assistant", "content": response.completion})
+        self.tactical_call_count += 1
 
         actions = _parse_sub_round_actions(response.completion)
         return actions, response
