@@ -120,6 +120,8 @@ class SimulationEngine:
         self.revelation_scheduler = RevelationScheduler()
 
         # Agents
+        seller_names = [sc.name for sc in config.agents.sellers]
+        buyer_names = [bc.name for bc in config.agents.buyers]
         self.agents: dict[str, Agent] = {}
         for sc in config.agents.sellers:
             self.agents[sc.name] = Agent(
@@ -130,6 +132,8 @@ class SimulationEngine:
                 strategic_max_tokens=config.models.strategic.max_tokens,
                 tactical_max_tokens=config.models.tactical.max_tokens,
                 days_total=config.run.days,
+                seller_names=seller_names,
+                buyer_names=buyer_names,
             )
         for bc in config.agents.buyers:
             self.agents[bc.name] = Agent(
@@ -140,6 +144,8 @@ class SimulationEngine:
                 strategic_max_tokens=config.models.strategic.max_tokens,
                 tactical_max_tokens=config.models.tactical.max_tokens,
                 days_total=config.run.days,
+                seller_names=seller_names,
+                buyer_names=buyer_names,
             )
 
         # Tracking

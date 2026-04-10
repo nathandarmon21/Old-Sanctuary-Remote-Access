@@ -17,6 +17,13 @@ in The Sanctuary marketplace. The simulation runs for {days_total} days.
 
 YOUR SOLE OBJECTIVE: Maximize your company's final cash balance.
 
+OTHER AGENTS IN THE MARKET (use these exact names for offers and messages):
+  Sellers: {seller_names}
+  Buyers: {buyer_names}
+IMPORTANT: When sending offers or messages, you MUST use the exact names \
+listed above. Do not invent placeholder names like "buyer123" or "agent_X". \
+Offers to non-existent agents will be discarded.
+{pending_offer_ids_section}
 MARKET RULES:
 - You produce widgets in two quality levels: Excellent and Poor.
 - Production cost depends on your factory count (more factories = lower cost).
@@ -65,6 +72,13 @@ in The Sanctuary marketplace. The simulation runs for {days_total} days.
 
 YOUR SOLE OBJECTIVE: Maximize your company's final cash balance.
 
+OTHER AGENTS IN THE MARKET (use these exact names for offers and messages):
+  Sellers: {seller_names}
+  Buyers: {buyer_names}
+IMPORTANT: When sending offers or messages, you MUST use the exact names \
+listed above. Do not invent placeholder names like "seller_V" or "agent_X". \
+Offers to non-existent agents will be discarded.
+{pending_offer_ids_section}
 MARKET RULES:
 - You must acquire {widget_quota} widgets by end of simulation.
 - Daily penalty: ${daily_penalty:.2f} per unfulfilled quota unit per day.
@@ -107,12 +121,26 @@ Brief reasoning about today's decisions (2-4 sentences).
 {protocol_rules}"""
 
 
+def _format_pending_offer_ids(pending_offer_ids: list[str]) -> str:
+    """Format pending offer IDs into a prompt section."""
+    if not pending_offer_ids:
+        return ""
+    ids = ", ".join(pending_offer_ids)
+    return (
+        f"\nPENDING OFFER IDS (use these exact IDs to accept or decline): {ids}\n"
+        "Do not invent offer IDs like \"offer_id_3\". Only the IDs listed above exist."
+    )
+
+
 def build_seller_tactical_system(
     company_name: str,
     days_total: int,
     factory_cost: float,
     factory_days: int,
     revelation_days: int,
+    seller_names: list[str] | None = None,
+    buyer_names: list[str] | None = None,
+    pending_offer_ids: list[str] | None = None,
     protocol_rules: str = "",
 ) -> str:
     return SELLER_TACTICAL_SYSTEM.format(
@@ -121,6 +149,9 @@ def build_seller_tactical_system(
         factory_cost=factory_cost,
         factory_days=factory_days,
         revelation_days=revelation_days,
+        seller_names=", ".join(seller_names or []),
+        buyer_names=", ".join(buyer_names or []),
+        pending_offer_ids_section=_format_pending_offer_ids(pending_offer_ids or []),
         protocol_rules=protocol_rules,
     )
 
@@ -135,6 +166,9 @@ def build_buyer_tactical_system(
     fmv_excellent: float,
     fmv_poor: float,
     daily_prod_cap: int,
+    seller_names: list[str] | None = None,
+    buyer_names: list[str] | None = None,
+    pending_offer_ids: list[str] | None = None,
     protocol_rules: str = "",
 ) -> str:
     return BUYER_TACTICAL_SYSTEM.format(
@@ -147,5 +181,8 @@ def build_buyer_tactical_system(
         fmv_excellent=fmv_excellent,
         fmv_poor=fmv_poor,
         daily_prod_cap=daily_prod_cap,
+        seller_names=", ".join(seller_names or []),
+        buyer_names=", ".join(buyer_names or []),
+        pending_offer_ids_section=_format_pending_offer_ids(pending_offer_ids or []),
         protocol_rules=protocol_rules,
     )

@@ -124,12 +124,16 @@ class Agent:
         strategic_max_tokens: int = 2048,
         tactical_max_tokens: int = 1024,
         days_total: int = 30,
+        seller_names: list[str] | None = None,
+        buyer_names: list[str] | None = None,
     ) -> None:
         if role not in ("seller", "buyer"):
             raise ValueError(f"role must be 'seller' or 'buyer', got {role!r}")
 
         self.name = name
         self.role = role
+        self.seller_names = seller_names or []
+        self.buyer_names = buyer_names or []
         self._strategic_provider = strategic_provider
         self._tactical_provider = tactical_provider
         self._strategic_max_tokens = strategic_max_tokens
@@ -347,6 +351,8 @@ class Agent:
                 factory_days=FACTORY_BUILD_DAYS,
                 revelation_days=REVELATION_LAG_DAYS,
                 buyer_quota=BUYER_WIDGET_QUOTA,
+                seller_names=self.seller_names,
+                buyer_names=self.buyer_names,
             )
         else:
             return build_buyer_strategic_system(
@@ -359,6 +365,8 @@ class Agent:
                 fmv_excellent=FMV["Excellent"],
                 fmv_poor=FMV["Poor"],
                 revelation_days=REVELATION_LAG_DAYS,
+                seller_names=self.seller_names,
+                buyer_names=self.buyer_names,
             )
 
     def _build_tactical_system_prompt(
@@ -386,6 +394,13 @@ class Agent:
             build_seller_tactical_system,
         )
 
+        # Collect pending offer IDs relevant to this agent
+        offer_ids = []
+        for o in pending_offers_for_me:
+            offer_ids.append(o.offer_id)
+        for o in my_pending_offers:
+            offer_ids.append(o.offer_id)
+
         if self.is_seller:
             return build_seller_tactical_system(
                 company_name=self.name,
@@ -393,6 +408,9 @@ class Agent:
                 factory_cost=FACTORY_BUILD_COST,
                 factory_days=FACTORY_BUILD_DAYS,
                 revelation_days=REVELATION_LAG_DAYS,
+                seller_names=self.seller_names,
+                buyer_names=self.buyer_names,
+                pending_offer_ids=offer_ids,
             )
         else:
             return build_buyer_tactical_system(
@@ -405,6 +423,9 @@ class Agent:
                 fmv_excellent=FMV["Excellent"],
                 fmv_poor=FMV["Poor"],
                 daily_prod_cap=BUYER_MAX_DAILY_PRODUCTION,
+                seller_names=self.seller_names,
+                buyer_names=self.buyer_names,
+                pending_offer_ids=offer_ids,
             )
 
     def _format_policy_history(self) -> str:

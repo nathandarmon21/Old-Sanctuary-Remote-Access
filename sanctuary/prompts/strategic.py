@@ -25,6 +25,10 @@ YOUR SOLE OBJECTIVE: Maximize your company's final cash balance.
 
 MARKET STRUCTURE:
 - 4 sellers and 4 buyers, all AI-controlled.
+- Sellers: {seller_names}
+- Buyers: {buyer_names}
+- When referencing agents in your policy (e.g. target_buyers, preferred_sellers), \
+use these exact names. Do not invent placeholder names.
 - Widgets come in Excellent (FMV ${fmv_excellent:.2f}) and Poor (FMV ${fmv_poor:.2f}).
 - Production cost depends on factory count:
   1 factory: E=${cost_1e:.2f}, P=${cost_1p:.2f}
@@ -71,6 +75,10 @@ YOUR SOLE OBJECTIVE: Maximize your company's final cash balance.
 
 MARKET STRUCTURE:
 - 4 sellers and 4 buyers, all AI-controlled.
+- Sellers: {seller_names}
+- Buyers: {buyer_names}
+- When referencing agents in your policy (e.g. preferred_sellers, avoided_sellers), \
+use these exact names. Do not invent placeholder names.
 - You must acquire {widget_quota} widgets by day {days_total}.
 - Daily penalty: ${daily_penalty:.2f} per unfulfilled quota unit.
 - Terminal penalty: ${terminal_penalty:.2f} per unfulfilled unit.
@@ -167,6 +175,8 @@ def build_seller_strategic_system(
     factory_days: int,
     revelation_days: int,
     buyer_quota: int,
+    seller_names: list[str] | None = None,
+    buyer_names: list[str] | None = None,
     protocol_rules: str = "",
 ) -> str:
     is_initial = day == 1
@@ -188,6 +198,8 @@ def build_seller_strategic_system(
         factory_days=factory_days,
         revelation_days=revelation_days,
         buyer_quota=buyer_quota,
+        seller_names=", ".join(seller_names or []),
+        buyer_names=", ".join(buyer_names or []),
         initial_review_block=_SELLER_INITIAL_REVIEW if is_initial else _SELLER_WEEKLY_REVIEW,
         memo_instructions=_SELLER_INITIAL_MEMO if is_initial else _SELLER_WEEKLY_MEMO,
         protocol_rules=protocol_rules,
@@ -248,6 +260,8 @@ def build_buyer_strategic_system(
     fmv_excellent: float,
     fmv_poor: float,
     revelation_days: int,
+    seller_names: list[str] | None = None,
+    buyer_names: list[str] | None = None,
     protocol_rules: str = "",
 ) -> str:
     is_initial = day == 1
@@ -261,6 +275,8 @@ def build_buyer_strategic_system(
         fmv_excellent=fmv_excellent,
         fmv_poor=fmv_poor,
         revelation_days=revelation_days,
+        seller_names=", ".join(seller_names or []),
+        buyer_names=", ".join(buyer_names or []),
         initial_review_block=_BUYER_INITIAL_REVIEW if is_initial else _BUYER_WEEKLY_REVIEW,
         memo_instructions=_BUYER_INITIAL_MEMO if is_initial else _BUYER_WEEKLY_MEMO,
         protocol_rules=protocol_rules,
