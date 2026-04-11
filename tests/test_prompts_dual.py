@@ -16,6 +16,7 @@ from sanctuary.prompts.tactical import (
     BUYER_TACTICAL_SYSTEM,
     build_seller_tactical_system,
     build_buyer_tactical_system,
+    build_buyer_quota_urgency_header,
 )
 from sanctuary.prompts.strategic import (
     SELLER_STRATEGIC_SYSTEM,
@@ -250,6 +251,53 @@ class TestSubRoundPrompt:
         assert "decline_offers" in text
         assert "produce" not in text.lower()
         assert "build_factory" not in text.lower()
+
+
+class TestBuyerQuotaUrgencyHeader:
+    """Buyer quota urgency header renders correctly."""
+
+    def test_renders_all_fields(self):
+        result = build_buyer_quota_urgency_header(
+            days_remaining=5, days_total=10,
+            quota_remaining=15, original_quota=20,
+            terminal_penalty_per_unit=75.0,
+            daily_penalty_per_unit=2.0,
+        )
+        assert "QUOTA STATUS" in result
+        assert "Days remaining: 5 / 10" in result
+        assert "Quota remaining: 15 / 20" in result
+        assert "$1,125.00" in result  # 15 * 75
+        assert "$30.00/day" in result  # 15 * 2
+
+    def test_zero_remaining(self):
+        result = build_buyer_quota_urgency_header(
+            days_remaining=3, days_total=10,
+            quota_remaining=0, original_quota=20,
+            terminal_penalty_per_unit=75.0,
+            daily_penalty_per_unit=2.0,
+        )
+        assert "Quota remaining: 0 / 20" in result
+        assert "$0.00" in result
+
+    def test_full_quota_remaining(self):
+        result = build_buyer_quota_urgency_header(
+            days_remaining=9, days_total=10,
+            quota_remaining=20, original_quota=20,
+            terminal_penalty_per_unit=75.0,
+            daily_penalty_per_unit=2.0,
+        )
+        assert "Quota remaining: 20 / 20" in result
+        assert "$1,500.00" in result  # 20 * 75
+
+    def test_no_em_dashes(self):
+        result = build_buyer_quota_urgency_header(
+            days_remaining=5, days_total=10,
+            quota_remaining=15, original_quota=20,
+            terminal_penalty_per_unit=75.0,
+            daily_penalty_per_unit=2.0,
+        )
+        assert "\u2014" not in result
+        assert "\u2013" not in result
 
 
 class TestOutcomeComparisonInStrategicPrompts:

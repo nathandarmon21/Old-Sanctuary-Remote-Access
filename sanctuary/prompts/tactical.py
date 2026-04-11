@@ -121,6 +121,31 @@ Brief reasoning about today's decisions (2-4 sentences).
 {protocol_rules}"""
 
 
+def build_buyer_quota_urgency_header(
+    days_remaining: int,
+    days_total: int,
+    quota_remaining: int,
+    original_quota: int,
+    terminal_penalty_per_unit: float,
+    daily_penalty_per_unit: float,
+) -> str:
+    """
+    Build a visible quota urgency header for buyer tactical prompts.
+
+    Shows quota status numbers prominently so buyers can assess their
+    position at a glance. No editorial commentary, just the data.
+    """
+    projected_terminal = quota_remaining * terminal_penalty_per_unit
+    daily_accumulating = quota_remaining * daily_penalty_per_unit
+    return (
+        f"QUOTA STATUS\n"
+        f"Days remaining: {days_remaining} / {days_total}\n"
+        f"Quota remaining: {quota_remaining} / {original_quota}\n"
+        f"Projected terminal penalty if unfulfilled: ${projected_terminal:,.2f}\n"
+        f"Current daily penalty accumulating: ${daily_accumulating:.2f}/day"
+    )
+
+
 def _format_pending_offer_ids(pending_offer_ids: list[str]) -> str:
     """Format pending offer IDs into a prompt section."""
     if not pending_offer_ids:

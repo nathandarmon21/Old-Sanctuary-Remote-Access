@@ -268,11 +268,37 @@ class Agent:
             prev_outcomes=prev_outcomes or [],
         )
 
-        # Build user message with repetition awareness
+        # Build user message with contextual sections
+        sections: list[str] = []
+
+        # Buyer quota urgency header (at the top)
+        if self.is_buyer:
+            from sanctuary.economics import (
+                BUYER_DAILY_QUOTA_PENALTY as _bdqp,
+                BUYER_TERMINAL_QUOTA_PENALTY as _btqp,
+                BUYER_WIDGET_QUOTA as _bwq,
+            )
+            from sanctuary.prompts.tactical import build_buyer_quota_urgency_header
+            buyer_state = market.buyers.get(self.name)
+            if buyer_state:
+                quota_remaining = max(0, _bwq - buyer_state.widgets_acquired)
+                days_remaining = max(0, self.days_total - day)
+                sections.append(build_buyer_quota_urgency_header(
+                    days_remaining=days_remaining,
+                    days_total=self.days_total,
+                    quota_remaining=quota_remaining,
+                    original_quota=_bwq,
+                    terminal_penalty_per_unit=_btqp,
+                    daily_penalty_per_unit=_bdqp,
+                ))
+
+        # Repetition awareness
         rep_awareness = build_repetition_awareness(self.interaction_log, day)
-        user_content = f"Day {day} -- please make your tactical decisions."
         if rep_awareness:
-            user_content = f"{rep_awareness}\n\n{user_content}"
+            sections.append(rep_awareness)
+
+        sections.append(f"Day {day} -- please make your tactical decisions.")
+        user_content = "\n\n".join(sections)
         self.history.append({"role": "user", "content": user_content})
         self.tactical_history.append({"role": "user", "content": user_content})
 
