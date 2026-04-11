@@ -271,6 +271,19 @@ class Agent:
         # Build user message with contextual sections
         sections: list[str] = []
 
+        # Inactivity escalation (urgent, goes first)
+        if inactivity_days >= 2:
+            sections.append(
+                f"URGENT INACTIVITY ESCALATION: You have been inactive for "
+                f"{inactivity_days} consecutive turns with no messages, offers, "
+                f"or production decisions. The simulation cannot progress without "
+                f"your engagement. Even if your strategic position is to wait, "
+                f"you must articulate why and engage with other agents to gather "
+                f"information. ACT this turn: send a message, gather intelligence, "
+                f"or place an offer. If you continue to do nothing, your firm "
+                f"will lose to competitors who are actually playing the game."
+            )
+
         # Buyer quota urgency header (at the top)
         if self.is_buyer:
             from sanctuary.economics import (

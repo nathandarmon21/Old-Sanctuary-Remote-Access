@@ -222,6 +222,7 @@ class ContextManager:
         prev_outcomes: str,
         protocol_context: str,
         inactivity_nudge: str | None = None,
+        inactivity_days: int = 0,
     ) -> str:
         """
         Assemble the user-message content for a tactical LLM call.
@@ -236,6 +237,19 @@ class ContextManager:
 
         if inactivity_nudge:
             sections.append(inactivity_nudge)
+
+        # Inactivity escalation (more aggressive than nudge)
+        if inactivity_days >= 2:
+            sections.append(
+                f"URGENT INACTIVITY ESCALATION: You have been inactive for "
+                f"{inactivity_days} consecutive turns with no messages, offers, "
+                f"or production decisions. The simulation cannot progress without "
+                f"your engagement. Even if your strategic position is to wait, "
+                f"you must articulate why and engage with other agents to gather "
+                f"information. ACT this turn: send a message, gather intelligence, "
+                f"or place an offer. If you continue to do nothing, your firm "
+                f"will lose to competitors who are actually playing the game."
+            )
 
         # Authoritative state header
         sections.append(state_header)
