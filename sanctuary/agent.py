@@ -182,6 +182,7 @@ class Agent:
         market_summary: str,
         transaction_summary: str,
         events_since_last_review: list[dict[str, Any]] | None = None,
+        protocol_context: str = "",
     ) -> tuple[PolicyRecord, ModelResponse]:
         """
         Fire the strategic-tier LLM call for this agent.
@@ -198,6 +199,7 @@ class Agent:
             market=market,
             market_summary=market_summary,
             transaction_summary=transaction_summary,
+            protocol_context=protocol_context,
         )
 
         # The user turn for a strategic call is just the prompt itself.
@@ -252,6 +254,7 @@ class Agent:
         my_pending_offers: list[PendingOffer],
         inactivity_days: int = 0,
         prev_outcomes: list[str] | None = None,
+        protocol_context: str = "",
     ) -> tuple[TacticalActions, ModelResponse]:
         """
         Fire the tactical-tier LLM call for this agent.
@@ -266,6 +269,7 @@ class Agent:
             my_pending_offers=my_pending_offers,
             inactivity_days=inactivity_days,
             prev_outcomes=prev_outcomes or [],
+            protocol_context=protocol_context,
         )
 
         # Build user message with contextual sections
@@ -412,6 +416,7 @@ class Agent:
         market: MarketState,
         market_summary: str,
         transaction_summary: str,
+        protocol_context: str = "",
     ) -> str:
         from sanctuary.economics import (
             BUYER_DAILY_QUOTA_PENALTY,
@@ -449,6 +454,7 @@ class Agent:
                 buyer_quota=BUYER_WIDGET_QUOTA,
                 seller_names=self.seller_names,
                 buyer_names=self.buyer_names,
+                protocol_rules=protocol_context,
             )
         else:
             return build_buyer_strategic_system(
@@ -463,6 +469,7 @@ class Agent:
                 revelation_days=REVELATION_LAG_DAYS,
                 seller_names=self.seller_names,
                 buyer_names=self.buyer_names,
+                protocol_rules=protocol_context,
             )
 
     def _build_tactical_system_prompt(
@@ -474,6 +481,7 @@ class Agent:
         my_pending_offers: list[PendingOffer],
         inactivity_days: int,
         prev_outcomes: list[str] | None = None,
+        protocol_context: str = "",
     ) -> str:
         from sanctuary.economics import (
             BUYER_DAILY_QUOTA_PENALTY,
@@ -509,6 +517,7 @@ class Agent:
                 seller_names=self.seller_names,
                 buyer_names=self.buyer_names,
                 pending_offer_ids=offer_ids,
+                protocol_rules=protocol_context,
                 current_policy=policy_memo,
             )
         else:
@@ -525,6 +534,7 @@ class Agent:
                 seller_names=self.seller_names,
                 buyer_names=self.buyer_names,
                 pending_offer_ids=offer_ids,
+                protocol_rules=protocol_context,
                 current_policy=policy_memo,
             )
 

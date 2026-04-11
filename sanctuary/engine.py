@@ -373,6 +373,12 @@ class SimulationEngine:
         for d in range(last_strategic_day, day):
             events_since_review.extend(self._daily_events.get(d, []))
 
+        # Pre-compute protocol context for each agent
+        protocol_contexts: dict[str, str] = {
+            name: self.protocol.get_agent_context(name, self.agents, day)
+            for name, _ in active
+        }
+
         def _call(pair: tuple[str, Agent]) -> tuple[str, tuple[str, ...]]:
             name, agent = pair
             try:
@@ -381,6 +387,7 @@ class SimulationEngine:
                     market_summary=market_summary,
                     transaction_summary=transaction_summary,
                     events_since_last_review=events_since_review,
+                    protocol_context=protocol_contexts[name],
                 )
                 return name, ("ok", record, response)
             except ContextTooLongError as e:
@@ -456,6 +463,7 @@ class SimulationEngine:
                 "pending_for_me": self.market.offers_for_buyer(name) if agent.is_buyer else [],
                 "my_pending": self.market.offers_from_seller(name) if agent.is_seller else [],
                 "prev_outcomes": list(self._prev_outcomes.get(name, [])),
+                "protocol_context": self.protocol.get_agent_context(name, self.agents, day),
             }
 
         def _call(pair: tuple[str, Agent]) -> tuple[str, Any]:
@@ -469,6 +477,7 @@ class SimulationEngine:
                     my_pending_offers=pre[name]["my_pending"],
                     inactivity_days=pre[name]["inactivity_days"],
                     prev_outcomes=pre[name]["prev_outcomes"],
+                    protocol_context=pre[name]["protocol_context"],
                 )
                 return name, ("ok", actions, response)
             except ContextTooLongError as e:
