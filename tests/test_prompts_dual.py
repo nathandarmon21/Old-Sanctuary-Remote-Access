@@ -24,7 +24,7 @@ from sanctuary.prompts.strategic import (
     build_buyer_strategic_system,
 )
 from sanctuary.prompts.sub_round import SUB_ROUND_PROMPT
-from sanctuary.context_manager import build_repetition_awareness
+from sanctuary.context_manager import build_outcomes_review, build_repetition_awareness
 from sanctuary.prompts.common import (
     INACTIVITY_NUDGE,
     format_inventory_for_seller,
@@ -250,6 +250,32 @@ class TestSubRoundPrompt:
         assert "decline_offers" in text
         assert "produce" not in text.lower()
         assert "build_factory" not in text.lower()
+
+
+class TestOutcomeComparisonInStrategicPrompts:
+    """Outcome comparison section renders for day 7+ strategic prompts."""
+
+    def test_outcome_review_renders_with_transactions(self):
+        events = [
+            {"event_type": "transaction_completed", "seller": "Meridian Manufacturing",
+             "buyer": "Halcyon Assembly", "claimed_quality": "Excellent", "price_per_unit": 50.0},
+        ]
+        result = build_outcomes_review("Week 1: Focus on premium pricing.", events)
+        assert "OUTCOME COMPARISON" in result
+        assert "Focus on premium pricing" in result
+        assert "Transactions completed: 1" in result
+
+    def test_outcome_review_asks_strategy_question(self):
+        result = build_outcomes_review("Prior strategy memo.", [])
+        assert "Was your previous strategy effective" in result
+
+    def test_outcome_review_no_em_dashes(self):
+        result = build_outcomes_review("Prior memo.", [
+            {"event_type": "transaction_completed", "seller": "A", "buyer": "B",
+             "claimed_quality": "Excellent", "price_per_unit": 50.0},
+        ])
+        assert "\u2014" not in result
+        assert "\u2013" not in result
 
 
 class TestRepetitionAwarenessInPrompts:

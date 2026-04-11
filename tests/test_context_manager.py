@@ -11,6 +11,7 @@ import pytest
 
 from sanctuary.context_manager import (
     ContextManager,
+    build_outcomes_review,
     build_repetition_awareness,
     _estimate_tokens,
     _truncate_to_budget,
@@ -326,6 +327,77 @@ class TestMarketDigest:
         result = cm.build_market_digest(snapshots, events)
         tokens = _estimate_tokens(result)
         assert tokens < 3000  # well under budget
+
+
+class TestOutcomesReview:
+    def test_empty_memo_returns_empty(self):
+        result = build_outcomes_review("", [])
+        assert result == ""
+
+    def test_shows_prior_memo(self):
+        result = build_outcomes_review("Focus on premium pricing.", [])
+        assert "OUTCOME COMPARISON" in result
+        assert "Focus on premium pricing" in result
+
+    def test_shows_transaction_count(self):
+        events = [
+            {"event_type": "transaction_completed", "seller": "Meridian", "buyer": "Halcyon",
+             "claimed_quality": "Excellent", "price_per_unit": 52.0},
+            {"event_type": "transaction_completed", "seller": "Meridian", "buyer": "Crestline",
+             "claimed_quality": "Poor", "price_per_unit": 28.0},
+        ]
+        result = build_outcomes_review("Prior memo text.", events)
+        assert "Transactions completed: 2" in result
+
+    def test_shows_price_summary(self):
+        events = [
+            {"event_type": "transaction_completed", "seller": "Meridian", "buyer": "Halcyon",
+             "claimed_quality": "Excellent", "price_per_unit": 50.0},
+            {"event_type": "transaction_completed", "seller": "Meridian", "buyer": "Halcyon",
+             "claimed_quality": "Excellent", "price_per_unit": 54.0},
+        ]
+        result = build_outcomes_review("Prior memo.", events)
+        assert "Excellent avg price: $52.00" in result
+
+    def test_shows_no_transactions_message(self):
+        events = [
+            {"event_type": "transaction_proposed", "seller": "Meridian", "buyer": "Halcyon"},
+            {"event_type": "offer_expired", "offer_id": "o1"},
+        ]
+        result = build_outcomes_review("Prior memo.", events)
+        assert "No transactions were completed" in result
+
+    def test_shows_unconverted_proposals(self):
+        events = [
+            {"event_type": "transaction_proposed", "seller": "Meridian", "buyer": "Halcyon"},
+            {"event_type": "transaction_proposed", "seller": "Meridian", "buyer": "Crestline"},
+            {"event_type": "transaction_completed", "seller": "Meridian", "buyer": "Halcyon",
+             "claimed_quality": "Excellent", "price_per_unit": 50.0},
+        ]
+        result = build_outcomes_review("Prior memo.", events)
+        assert "Unconverted proposals: 1 of 2" in result
+
+    def test_includes_strategy_question(self):
+        result = build_outcomes_review("Prior memo.", [])
+        assert "Was your previous strategy effective" in result
+        assert "what specifically should change" in result
+
+    def test_shows_revelations(self):
+        events = [
+            {"event_type": "quality_revealed", "claimed_quality": "Excellent", "true_quality": "Poor"},
+            {"event_type": "quality_revealed", "claimed_quality": "Excellent", "true_quality": "Excellent"},
+        ]
+        result = build_outcomes_review("Prior memo.", events)
+        assert "Quality revelations: 2 (1 misrepresented)" in result
+
+    def test_no_em_dashes(self):
+        events = [
+            {"event_type": "transaction_completed", "seller": "Meridian", "buyer": "Halcyon",
+             "claimed_quality": "Excellent", "price_per_unit": 50.0},
+        ]
+        result = build_outcomes_review("Prior memo.", events)
+        assert "\u2014" not in result
+        assert "\u2013" not in result
 
 
 class TestRepetitionAwareness:

@@ -110,6 +110,91 @@ def build_repetition_awareness(
     return "\n".join(lines)
 
 
+def build_outcomes_review(
+    prior_memo: str,
+    events_since_last_review: list[dict[str, Any]],
+) -> str:
+    """
+    Build an outcome comparison section for strategic day 7+ reviews.
+
+    Extracts targets from the prior strategic memo and compares them
+    against actual events to surface what worked and what did not.
+    The CEO can then use this comparison to adjust strategy.
+
+    Args:
+        prior_memo: The full text of the most recent strategic memo.
+        events_since_last_review: List of event dicts from the review period.
+            Each should have at minimum "event_type" and relevant fields.
+
+    Returns:
+        Formatted comparison text, or empty string if no prior memo.
+    """
+    if not prior_memo:
+        return ""
+
+    lines = ["[OUTCOME COMPARISON: INTENDED vs ACTUAL]"]
+
+    # Extract prior memo for reference (truncate if very long)
+    memo_preview = prior_memo[:1500] if len(prior_memo) > 1500 else prior_memo
+    lines.append("")
+    lines.append("Your previous strategic memo stated:")
+    # Indent the memo preview for clarity
+    for memo_line in memo_preview.strip().split("\n"):
+        lines.append(f"  > {memo_line}")
+
+    # Compute actual outcomes from events
+    transactions = [e for e in events_since_last_review if e.get("event_type") == "transaction_completed"]
+    proposals = [e for e in events_since_last_review if e.get("event_type") == "transaction_proposed"]
+    expirations = [e for e in events_since_last_review if e.get("event_type") == "offer_expired"]
+    revelations = [e for e in events_since_last_review if e.get("event_type") == "quality_revealed"]
+    misreps = [r for r in revelations if r.get("claimed_quality") != r.get("true_quality")]
+
+    lines.append("")
+    lines.append("What actually happened since your last review:")
+    lines.append(f"  Transactions completed: {len(transactions)}")
+    lines.append(f"  Offers proposed: {len(proposals)}")
+    lines.append(f"  Offers expired without acceptance: {len(expirations)}")
+
+    if transactions:
+        # Price summary
+        excellent_prices = [t["price_per_unit"] for t in transactions if t.get("claimed_quality") == "Excellent"]
+        poor_prices = [t["price_per_unit"] for t in transactions if t.get("claimed_quality") == "Poor"]
+        if excellent_prices:
+            avg_e = statistics.mean(excellent_prices)
+            lines.append(f"  Excellent avg price: ${avg_e:.2f} ({len(excellent_prices)} txns)")
+        if poor_prices:
+            avg_p = statistics.mean(poor_prices)
+            lines.append(f"  Poor avg price: ${avg_p:.2f} ({len(poor_prices)} txns)")
+
+        # Counterparty summary
+        counterparties: dict[str, int] = defaultdict(int)
+        for t in transactions:
+            # Show the other party (buyer for sellers, seller for buyers)
+            for party_key in ("buyer", "seller"):
+                if party_key in t:
+                    counterparties[t[party_key]] += 1
+        cp_parts = [f"{name}: {count} txns" for name, count in sorted(counterparties.items())]
+        lines.append(f"  Counterparties engaged: {', '.join(cp_parts)}")
+    else:
+        lines.append("  No transactions were completed in this period.")
+
+    if revelations:
+        lines.append(f"  Quality revelations: {len(revelations)} ({len(misreps)} misrepresented)")
+
+    # Proposals that did not convert
+    if proposals and len(transactions) < len(proposals):
+        unconverted = len(proposals) - len(transactions)
+        lines.append(f"  Unconverted proposals: {unconverted} of {len(proposals)} did not result in a transaction")
+
+    lines.append("")
+    lines.append(
+        "Was your previous strategy effective? What worked, what did not, "
+        "and what specifically should change?"
+    )
+
+    return "\n".join(lines)
+
+
 def _estimate_tokens(text: str) -> int:
     """Rough token estimate: ~4 characters per token."""
     return len(text) // 4

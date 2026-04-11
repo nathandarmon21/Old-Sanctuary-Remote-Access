@@ -35,7 +35,7 @@ from sanctuary.prompts.common import (
     format_pending_offers_for_seller,
     format_prev_outcomes,
 )
-from sanctuary.context_manager import build_repetition_awareness
+from sanctuary.context_manager import build_outcomes_review, build_repetition_awareness
 from sanctuary.prompts.sub_round import SUB_ROUND_PROMPT
 
 
@@ -181,6 +181,7 @@ class Agent:
         market: MarketState,
         market_summary: str,
         transaction_summary: str,
+        events_since_last_review: list[dict[str, Any]] | None = None,
     ) -> tuple[PolicyRecord, ModelResponse]:
         """
         Fire the strategic-tier LLM call for this agent.
@@ -202,9 +203,19 @@ class Agent:
         # The user turn for a strategic call is just the prompt itself.
         # We pass the full history so the model has context.
         user_content = (
-            f"Day {day} — Week {week} strategic planning session. "
+            f"Day {day} -- Week {week} strategic planning session. "
             f"Please write your strategic memo and <policy> block."
         )
+
+        # For day 7+ reviews, add outcome comparison
+        if day >= 7 and self.current_policy is not None:
+            outcomes_text = build_outcomes_review(
+                prior_memo=self.current_policy.raw_memo,
+                events_since_last_review=events_since_last_review or [],
+            )
+            if outcomes_text:
+                user_content = f"{outcomes_text}\n\n{user_content}"
+
         self.history.append({"role": "user", "content": user_content})
         self.strategic_history.append({"role": "user", "content": user_content})
 

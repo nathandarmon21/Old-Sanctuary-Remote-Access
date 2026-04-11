@@ -294,7 +294,8 @@ class SimulationEngine:
         # 7. Expire stale offers
         expired = self.market.expire_stale_offers(day)
         for oid in expired:
-            self.run_dir.events.write_event("offer_expired", day=day, offer_id=oid)
+            evt = self.run_dir.events.write_event("offer_expired", day=day, offer_id=oid)
+            self._daily_events.setdefault(day, []).append(evt)
             # Record expiry interactions on both parties
             offer = self.market.pending_offers.get(oid)
             if offer:
@@ -363,6 +364,15 @@ class SimulationEngine:
         market_summary = self._build_market_summary(day)
         transaction_summary = self._build_transaction_summary(day)
 
+        # Collect events since last strategic review for outcomes comparison
+        last_strategic_day = 1
+        for d in self.config.run.strategic_tier_days:
+            if d < day:
+                last_strategic_day = d
+        events_since_review: list[dict[str, Any]] = []
+        for d in range(last_strategic_day, day):
+            events_since_review.extend(self._daily_events.get(d, []))
+
         def _call(pair: tuple[str, Agent]) -> tuple[str, tuple[str, ...]]:
             name, agent = pair
             try:
@@ -370,6 +380,7 @@ class SimulationEngine:
                     day=day, week=week, market=self.market,
                     market_summary=market_summary,
                     transaction_summary=transaction_summary,
+                    events_since_last_review=events_since_review,
                 )
                 return name, ("ok", record, response)
             except ContextTooLongError as e:
@@ -600,13 +611,14 @@ class SimulationEngine:
                         price_per_unit=offer.price_per_unit,
                         day=day,
                     )
-                    self.run_dir.events.write_event(
+                    evt = self.run_dir.events.write_event(
                         "transaction_proposed", day=day,
                         offer_id=pending.offer_id, seller=name,
                         buyer=offer.to, quantity=offer.qty,
                         claimed_quality=offer.claimed_quality,
                         price_per_unit=offer.price_per_unit,
                     )
+                    self._daily_events.setdefault(day, []).append(evt)
                     agent.record_interaction(day, offer.to, "offer_made")
                     self._curr_outcomes[name].append(
                         f"Offer to {offer.to}: {offer.qty}x {offer.claimed_quality} "
@@ -669,13 +681,14 @@ class SimulationEngine:
                         day=day,
                     )
                     self.agents[name].record_interaction(day, offer.to, "offer_made")
-                    self.run_dir.events.write_event(
+                    evt = self.run_dir.events.write_event(
                         "transaction_proposed", day=day,
                         offer_id=pending.offer_id, seller=offer.to,
                         buyer=name, quantity=offer.qty,
                         claimed_quality=offer.claimed_quality,
                         price_per_unit=offer.price_per_unit,
                     )
+                    self._daily_events.setdefault(day, []).append(evt)
                 except Exception as e:
                     self._curr_outcomes[name].append(f"Counter-offer to {offer.to}: FAILED ({e})")
 
