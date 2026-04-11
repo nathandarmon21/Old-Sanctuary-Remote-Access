@@ -1,5 +1,6 @@
-# dev_available.yaml -- uses models currently pulled in Ollama
-# Use: python -m sanctuary.run --config configs/dev_available.yaml --seed 42
+# smoke_10day.yaml -- 10-day dual-tier validation run via local Ollama
+# Exercises both strategic (days 1, 7) and tactical tiers in ~20-30 min.
+# Use: python -m sanctuary.run --config configs/smoke_10day.yaml --seed 42
 
 run:
   days: 30
@@ -13,7 +14,7 @@ models:
     provider: ollama
     model: qwen2.5:14b
     temperature: 0.7
-    max_tokens: 1200
+    max_tokens: 1500
     timeout: 600.0
     seed: null
   tactical:

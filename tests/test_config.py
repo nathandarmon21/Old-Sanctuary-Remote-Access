@@ -79,7 +79,7 @@ class TestConfigLoading:
 
     def test_strategic_tier_days(self):
         config = load_config(_CONFIGS_DIR / "dev_local.yaml")
-        assert config.run.strategic_tier_days == [1, 7, 14, 21, 28]
+        assert config.run.strategic_tier_days == [1, 5, 10, 15, 20, 25, 30]
 
     def test_protocol_default(self):
         config = load_config(_CONFIGS_DIR / "dev_local.yaml")

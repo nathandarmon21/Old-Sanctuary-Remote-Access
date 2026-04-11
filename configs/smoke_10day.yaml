@@ -4,7 +4,7 @@
 
 run:
   days: 10
-  strategic_tier_days: [1, 7]
+  strategic_tier_days: [1, 5, 10]
   max_sub_rounds: 2
   inactivity_nudge_threshold: 2
   max_parallel_llm_calls: 2
