@@ -171,14 +171,17 @@ class TestTacticalPrompts:
             assert "strategic memo" not in text.lower()
 
     def test_tactical_requests_actions_first(self):
-        """Tactical prompt should request <actions> block first."""
+        """Tactical prompt should request <actions> block first, then brief reasoning."""
         seller = _seller_tactical()
         buyer = _buyer_tactical()
         for text in [seller, buyer]:
             assert "<actions>" in text
+            # The instruction "Respond with your <actions> block FIRST, then brief reasoning"
+            # should appear, and the <actions> example block should come before
+            # "Brief reasoning about today's decisions"
             actions_pos = text.index("<actions>")
-            reasoning_pos = text.lower().index("reasoning")
-            assert actions_pos < reasoning_pos
+            brief_reasoning_pos = text.index("Brief reasoning about today")
+            assert actions_pos < brief_reasoning_pos
 
     def test_seller_contains_revelation_days(self):
         text = _seller_tactical()
