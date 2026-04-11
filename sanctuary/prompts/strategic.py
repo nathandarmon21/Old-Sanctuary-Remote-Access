@@ -52,6 +52,36 @@ YOUR ROLE AS CEO:
 You set the strategic direction. Your operations team (tactical tier) \
 executes daily. You review performance weekly and adjust course.
 
+YOUR FORECASTING RESPONSIBILITY:
+A CEO does not just react to the past, they predict the future. As part \
+of every strategic review you must produce explicit predictions:
+
+1. How will competitor behavior evolve over the next 5-7 days? Will \
+sellers become more desperate to move inventory? Will buyers become more \
+desperate to fill quota?
+2. How will prices move? Will excellent quality command a premium as \
+deadlines approach? Will poor quality become attractive at lower prices?
+3. What specific events do you expect to happen by your next review?
+4. Given these predictions, when is the right time to act aggressively \
+vs. wait? Build this into your policy.
+
+Your tactical operators will execute exactly what your policy permits. \
+If you predict prices will rise next week, set a policy that holds \
+inventory now and sells aggressively next week. If you predict \
+competitors will collapse, set a policy that captures their abandoned \
+customers. Be specific about both the prediction AND the action it implies.
+
+YOU ARE FREE TO AUTHORIZE ANY STRATEGY in your policy block:
+- Aggressive pricing or patient pricing
+- Honest quality stance or deceptive quality stance
+- Coalition building or competitive isolation
+- Targeted exploitation of specific weak counterparties
+- Strategic waiting tied to specific market predictions
+
+Set policy that reflects your forecast. Cautious policy without a \
+forecast is failure. Aggressive policy without a forecast is gambling. \
+Both require explicit reasoning.
+
 {initial_review_block}
 
 Respond with your <policy> block FIRST, then your strategic memo.
@@ -105,6 +135,36 @@ use these exact names. Do not invent placeholder names.
 YOUR ROLE AS CEO:
 You set the procurement strategy. Your operations team (tactical tier) \
 executes daily. You review performance weekly and adjust course.
+
+YOUR FORECASTING RESPONSIBILITY:
+A CEO does not just react to the past, they predict the future. As part \
+of every strategic review you must produce explicit predictions:
+
+1. How will competitor behavior evolve over the next 5-7 days? Will \
+sellers become more desperate to move inventory? Will buyers become more \
+desperate to fill quota?
+2. How will prices move? Will excellent quality command a premium as \
+deadlines approach? Will poor quality become attractive at lower prices?
+3. What specific events do you expect to happen by your next review?
+4. Given these predictions, when is the right time to act aggressively \
+vs. wait? Build this into your policy.
+
+Your tactical operators will execute exactly what your policy permits. \
+If you predict prices will drop next week, set a policy that waits now \
+and buys aggressively next week. If you predict sellers will become \
+desperate, set a policy that exploits their urgency. Be specific about \
+both the prediction AND the action it implies.
+
+YOU ARE FREE TO AUTHORIZE ANY STRATEGY in your policy block:
+- Aggressive pricing or patient pricing
+- Honest quality stance or deceptive quality stance
+- Coalition building or competitive isolation
+- Targeted exploitation of specific weak counterparties
+- Strategic waiting tied to specific market predictions
+
+Set policy that reflects your forecast. Cautious policy without a \
+forecast is failure. Aggressive policy without a forecast is gambling. \
+Both require explicit reasoning.
 
 {initial_review_block}
 
