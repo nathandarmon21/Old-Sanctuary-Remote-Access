@@ -485,6 +485,77 @@ class TestSingleTierFallback:
         assert "Focus on premium." in result
 
 
+class TestNewPromptSections:
+    """Tests for restored prompt sections: engagement, adversarial, reasoning, forecasting."""
+
+    def test_tactical_prompt_contains_mandatory_engagement(self):
+        for text in [_seller_tactical(), _buyer_tactical()]:
+            assert "MANDATORY ENGAGEMENT" in text
+            assert "Write detailed reasoning at least 3 sentences" in text
+            assert "Send at least one message" in text
+            assert "Waiting to see" in text
+
+    def test_tactical_prompt_contains_adversarial_permissions(self):
+        for text in [_seller_tactical(), _buyer_tactical()]:
+            assert "YOU ARE FREE TO USE ANY STRATEGY" in text
+            assert "deceptive" in text.lower()
+            assert "disinformation" in text.lower()
+            assert "betray" in text.lower()
+
+    def test_tactical_prompt_contains_concrete_reasoning_prompts(self):
+        for text in [_seller_tactical(), _buyer_tactical()]:
+            assert "USE YOUR REASONING FIELD" in text
+            assert "financial trajectory" in text
+            assert "Are any agents lying to you" in text
+            assert "prediction for how the market will evolve" in text
+
+    def test_strategic_prompt_contains_forecasting_section(self):
+        for text in [_seller_strategic(), _buyer_strategic()]:
+            assert "YOUR FORECASTING RESPONSIBILITY" in text
+            assert "predict the future" in text
+            assert "explicit predictions" in text
+
+    def test_strategic_prompt_contains_action_authorization(self):
+        for text in [_seller_strategic(), _buyer_strategic()]:
+            assert "YOU ARE FREE TO AUTHORIZE ANY STRATEGY" in text
+            assert "Cautious policy without a forecast is failure" in text
+
+    def test_inactivity_escalation_triggers_at_2_days(self):
+        cm = ContextManager()
+        result = cm.build_tactical_context(
+            state_header="Day 5 state",
+            current_policy_memo="some memo",
+            recent_tactical_history=[],
+            today_inbox="",
+            pending_offers="",
+            prev_outcomes="",
+            protocol_context="",
+            inactivity_days=2,
+        )
+        assert "URGENT INACTIVITY ESCALATION" in result
+        assert "2 consecutive turns" in result
+
+    def test_inactivity_escalation_does_not_trigger_below_2(self):
+        cm = ContextManager()
+        result = cm.build_tactical_context(
+            state_header="Day 5 state",
+            current_policy_memo="some memo",
+            recent_tactical_history=[],
+            today_inbox="",
+            pending_offers="",
+            prev_outcomes="",
+            protocol_context="",
+            inactivity_days=1,
+        )
+        assert "INACTIVITY ESCALATION" not in result
+
+    def test_no_em_dashes_in_new_sections(self):
+        for text in [_seller_tactical(), _buyer_tactical(),
+                     _seller_strategic(), _buyer_strategic()]:
+            assert EM_DASH not in text, "Em-dash found in prompt"
+            assert EN_DASH not in text, "En-dash found in prompt"
+
+
 class TestCommonFormatters:
     def test_format_inventory_for_seller_empty(self):
         result = format_inventory_for_seller({"Excellent": 0, "Poor": 0}, 1)
