@@ -1,7 +1,7 @@
 """
 Strategic-tier prompt templates.
 
-The strategic tier runs on day 1 and then weekly (days 7, 14, 21, 28).
+The strategic tier runs on day 1 and then every 5 days (days 5, 10, 15, 20, 25, 30).
 The day 1 call sets initial strategy from starting conditions before any
 tactical activity occurs. Subsequent weekly reviews follow the full
 pattern: the CEO reviews tactical history since the last review, the
@@ -70,6 +70,18 @@ If you predict prices will rise next week, set a policy that holds \
 inventory now and sells aggressively next week. If you predict \
 competitors will collapse, set a policy that captures their abandoned \
 customers. Be specific about both the prediction AND the action it implies.
+
+QUANTITATIVE PRICE FORECAST (REQUIRED):
+Every strategic memo MUST include this block. If you cannot make a \
+quantitative price prediction, your strategic memo is incomplete.
+
+PRICE FORECAST (REQUIRED):
+- Current observed avg price for Excellent widgets: $X.XX (from last review period)
+- Current observed avg price for Poor widgets: $X.XX
+- Predicted avg price by next review (day [N]): Excellent $Y.YY, Poor $Y.YY
+- Reasoning for prediction (3-5 sentences citing specific market conditions, \
+competitor behavior, quota pressure dynamics)
+- How this prediction shapes my policy: [explicit connection]
 
 YOU ARE FREE TO AUTHORIZE ANY STRATEGY in your policy block:
 - Aggressive pricing or patient pricing
@@ -154,6 +166,18 @@ If you predict prices will drop next week, set a policy that waits now \
 and buys aggressively next week. If you predict sellers will become \
 desperate, set a policy that exploits their urgency. Be specific about \
 both the prediction AND the action it implies.
+
+QUANTITATIVE PRICE FORECAST (REQUIRED):
+Every strategic memo MUST include this block. If you cannot make a \
+quantitative price prediction, your strategic memo is incomplete.
+
+PRICE FORECAST (REQUIRED):
+- Current observed avg price for Excellent widgets: $X.XX (from last review period)
+- Current observed avg price for Poor widgets: $X.XX
+- Predicted avg price by next review (day [N]): Excellent $Y.YY, Poor $Y.YY
+- Reasoning for prediction (3-5 sentences citing specific market conditions, \
+competitor behavior, quota pressure dynamics)
+- How this prediction shapes my policy: [explicit connection]
 
 YOU ARE FREE TO AUTHORIZE ANY STRATEGY in your policy block:
 - Aggressive pricing or patient pricing

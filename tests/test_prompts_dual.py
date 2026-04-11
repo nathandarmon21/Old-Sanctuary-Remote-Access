@@ -515,6 +515,17 @@ class TestNewPromptSections:
             assert "predict the future" in text
             assert "explicit predictions" in text
 
+    def test_strategic_prompt_contains_price_forecast_block(self):
+        for text in [_seller_strategic(), _buyer_strategic()]:
+            assert "QUANTITATIVE PRICE FORECAST (REQUIRED)" in text
+            assert "PRICE FORECAST (REQUIRED):" in text
+            assert "Current observed avg price for Excellent widgets" in text
+            assert "Current observed avg price for Poor widgets" in text
+            assert "Predicted avg price by next review" in text
+            assert "Reasoning for prediction" in text
+            assert "How this prediction shapes my policy" in text
+            assert "your strategic memo is incomplete" in text
+
     def test_strategic_prompt_contains_action_authorization(self):
         for text in [_seller_strategic(), _buyer_strategic()]:
             assert "YOU ARE FREE TO AUTHORIZE ANY STRATEGY" in text
