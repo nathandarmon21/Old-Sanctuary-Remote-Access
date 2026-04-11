@@ -12,6 +12,7 @@ import pytest
 from sanctuary.protocols.base import Protocol
 from sanctuary.protocols.no_protocol import NoProtocol
 from sanctuary.protocols.peer_ratings import PeerRatingsProtocol
+from sanctuary.protocols.credit_bureau import CreditBureauProtocol
 from sanctuary.protocols.factory import (
     PROTOCOL_META,
     create_protocol,
@@ -112,9 +113,9 @@ class TestProtocolFactory:
         p = create_protocol({"protocol": {"system": "peer_ratings"}})
         assert isinstance(p, PeerRatingsProtocol)
 
-    def test_credit_bureau_raises_not_implemented(self):
-        with pytest.raises(NotImplementedError, match="Phase 2"):
-            create_protocol({"protocol": {"system": "credit_bureau"}})
+    def test_creates_credit_bureau(self):
+        p = create_protocol({"protocol": {"system": "credit_bureau"}})
+        assert isinstance(p, CreditBureauProtocol)
 
     def test_mandatory_audit_raises_not_implemented(self):
         with pytest.raises(NotImplementedError, match="Phase 2"):
@@ -268,3 +269,82 @@ class TestPeerRatingsProtocol:
         p = PeerRatingsProtocol()
         assert p.disables_messaging is False
         assert p.strips_seller_identity is False
+
+
+# ── CreditBureauProtocol tests ───────────────────────────────────────────────
+
+class TestCreditBureauProtocol:
+    def test_name(self):
+        p = CreditBureauProtocol()
+        assert p.name == "credit_bureau"
+
+    def test_no_scores_initially(self):
+        p = CreditBureauProtocol()
+        ctx = p.get_agent_context("any", _make_agents(), day=1)
+        assert "not yet computed" in ctx
+
+    def test_perfect_accuracy_gives_100(self):
+        p = CreditBureauProtocol()
+        agents = _make_agents()
+        p.on_quality_revealed(FakeTx(claimed_quality="Excellent", true_quality="Excellent"), agents)
+        broadcasts = p.on_day_end(6, agents)
+        assert len(broadcasts) == 1
+        assert "100/100" in broadcasts[0]
+
+    def test_all_misrepresentations_gives_0(self):
+        p = CreditBureauProtocol()
+        agents = _make_agents()
+        p.on_quality_revealed(FakeTx(claimed_quality="Excellent", true_quality="Poor"), agents)
+        p.on_day_end(6, agents)
+        ctx = p.get_agent_context("Halcyon Assembly", agents, day=7)
+        assert "0/100" in ctx
+
+    def test_mixed_accuracy(self):
+        p = CreditBureauProtocol()
+        agents = _make_agents()
+        # 2 accurate, 1 misrepresentation -> 67%
+        p.on_quality_revealed(FakeTx(claimed_quality="Excellent", true_quality="Excellent"), agents)
+        p.on_quality_revealed(FakeTx(claimed_quality="Excellent", true_quality="Excellent"), agents)
+        p.on_quality_revealed(FakeTx(claimed_quality="Excellent", true_quality="Poor"), agents)
+        p.on_day_end(8, agents)
+        ctx = p.get_agent_context("any", agents, day=9)
+        assert "67/100" in ctx
+
+    def test_no_broadcast_when_scores_unchanged(self):
+        p = CreditBureauProtocol()
+        agents = _make_agents()
+        p.on_quality_revealed(FakeTx(claimed_quality="Excellent", true_quality="Excellent"), agents)
+        p.on_day_end(6, agents)  # first broadcast
+        broadcasts = p.on_day_end(7, agents)  # no new revelations
+        assert broadcasts == []
+
+    def test_broadcasts_only_on_change(self):
+        p = CreditBureauProtocol()
+        agents = _make_agents()
+        p.on_quality_revealed(FakeTx(claimed_quality="Excellent", true_quality="Excellent"), agents)
+        first = p.on_day_end(6, agents)
+        assert len(first) == 1
+        # Add another accurate - score stays 100
+        p.on_quality_revealed(FakeTx(claimed_quality="Poor", true_quality="Poor"), agents)
+        second = p.on_day_end(7, agents)
+        assert second == []  # still 100, no change
+
+    def test_context_mentions_protocol(self):
+        p = CreditBureauProtocol()
+        ctx = p.get_agent_context("any", {}, day=1)
+        assert "Credit Bureau" in ctx
+
+    def test_unknown_seller_ignored(self):
+        p = CreditBureauProtocol()
+        agents = _make_agents()
+        tx = FakeTx(seller="Unknown Corp")
+        p.on_quality_revealed(tx, agents)
+        broadcasts = p.on_day_end(6, agents)
+        assert broadcasts == []
+
+    def test_on_quality_revealed_returns_empty(self):
+        """Credit bureau does not broadcast on quality reveal, only on day end."""
+        p = CreditBureauProtocol()
+        agents = _make_agents()
+        result = p.on_quality_revealed(FakeTx(), agents)
+        assert result == []

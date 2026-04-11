@@ -12,6 +12,7 @@ from typing import Any
 from sanctuary.protocols.base import Protocol
 from sanctuary.protocols.no_protocol import NoProtocol
 from sanctuary.protocols.peer_ratings import PeerRatingsProtocol
+from sanctuary.protocols.credit_bureau import CreditBureauProtocol
 
 
 PROTOCOL_META: dict[str, dict[str, str]] = {
@@ -60,6 +61,9 @@ def create_protocol(config: dict[str, Any]) -> Protocol:
 
     if system == "peer_ratings":
         return PeerRatingsProtocol()
+
+    if system == "credit_bureau":
+        return CreditBureauProtocol()
 
     if system in _PHASE_2_PROTOCOLS:
         meta = PROTOCOL_META[system]
