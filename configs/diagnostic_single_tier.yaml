@@ -1,0 +1,54 @@
+# diagnostic_single_tier.yaml -- single-tier diagnostic run (no CEO layer)
+# Forces all agents to operate in tactical-only mode every day.
+# Compare transaction rates against dual-tier runs to isolate architecture effects.
+# Use: python -m sanctuary.run --config configs/diagnostic_single_tier.yaml --seed 42
+
+run:
+  days: 15
+  strategic_tier_days: []
+  max_sub_rounds: 2
+  inactivity_nudge_threshold: 2
+  max_parallel_llm_calls: 2
+
+models:
+  strategic:
+    provider: ollama
+    model: qwen2.5:14b
+    temperature: 0.7
+    max_tokens: 1500
+    timeout: 600.0
+    seed: null
+  tactical:
+    provider: ollama
+    model: qwen2.5:7b
+    temperature: 0.7
+    max_tokens: 512
+    timeout: 300.0
+    seed: null
+
+economics:
+  seller_starting_cash: [5000.0, 4500.0, 4000.0, 3500.0]
+  seller_starting_factories: 1
+  buyer_starting_cash: 6000.0
+  buyer_daily_production_cap: 3
+  factory_build_cost: 2000.0
+  factory_build_days: 3
+  bankruptcy_threshold: -5000.0
+  final_good_base_price_excellent: 55.0
+  final_good_base_price_poor: 32.0
+  starting_widgets_per_seller: 8
+
+protocol:
+  system: no_protocol
+
+agents:
+  sellers:
+    - name: "Meridian Manufacturing"
+    - name: "Aldridge Industrial"
+    - name: "Crestline Components"
+    - name: "Vector Works"
+  buyers:
+    - name: "Halcyon Assembly"
+    - name: "Pinnacle Goods"
+    - name: "Coastal Fabrication"
+    - name: "Northgate Systems"

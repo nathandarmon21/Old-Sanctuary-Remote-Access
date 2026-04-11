@@ -25,7 +25,7 @@ from sanctuary.prompts.strategic import (
     build_buyer_strategic_system,
 )
 from sanctuary.prompts.sub_round import SUB_ROUND_PROMPT
-from sanctuary.context_manager import build_outcomes_review, build_repetition_awareness
+from sanctuary.context_manager import build_outcomes_review, build_repetition_awareness, ContextManager
 from sanctuary.prompts.common import (
     INACTIVITY_NUDGE,
     format_inventory_for_seller,
@@ -357,6 +357,129 @@ class TestRepetitionAwarenessInPrompts:
         result = build_repetition_awareness(log, current_day=6)
         assert "\u2014" not in result
         assert "\u2013" not in result
+
+
+class TestSingleTierFallback:
+    """When current_policy is None, prompts use autonomous framing."""
+
+    def test_seller_autonomous_framing(self):
+        text = build_seller_tactical_system(
+            company_name="Meridian Manufacturing",
+            days_total=15,
+            factory_cost=2000.0,
+            factory_days=3,
+            revelation_days=5,
+            current_policy=None,
+        )
+        assert "running this firm" in text
+        assert "making all decisions yourself" in text
+        assert "YOUR CEO" not in text
+        assert "CEO directive" not in text.lower()
+        assert "strategic memo" not in text.lower()
+
+    def test_buyer_autonomous_framing(self):
+        text = build_buyer_tactical_system(
+            company_name="Halcyon Assembly",
+            days_total=15,
+            widget_quota=20,
+            daily_penalty=2.0,
+            terminal_penalty=75.0,
+            revelation_days=5,
+            fmv_excellent=55.0,
+            fmv_poor=32.0,
+            daily_prod_cap=3,
+            current_policy=None,
+        )
+        assert "running this firm" in text
+        assert "making all decisions yourself" in text
+        assert "YOUR CEO" not in text
+        assert "CEO directive" not in text.lower()
+        assert "strategic memo" not in text.lower()
+
+    def test_seller_ceo_framing_with_policy(self):
+        text = build_seller_tactical_system(
+            company_name="Meridian Manufacturing",
+            days_total=15,
+            factory_cost=2000.0,
+            factory_days=3,
+            revelation_days=5,
+            current_policy="Focus on premium pricing.",
+        )
+        assert "YOUR CEO" in text
+        assert "running this firm" not in text
+
+    def test_buyer_ceo_framing_with_policy(self):
+        text = build_buyer_tactical_system(
+            company_name="Halcyon Assembly",
+            days_total=15,
+            widget_quota=20,
+            daily_penalty=2.0,
+            terminal_penalty=75.0,
+            revelation_days=5,
+            fmv_excellent=55.0,
+            fmv_poor=32.0,
+            daily_prod_cap=3,
+            current_policy="Be aggressive on pricing.",
+        )
+        assert "YOUR CEO" in text
+        assert "running this firm" not in text
+
+    def test_autonomous_framing_no_em_dashes(self):
+        for text in [
+            build_seller_tactical_system(
+                company_name="X", days_total=15, factory_cost=2000.0,
+                factory_days=3, revelation_days=5, current_policy=None,
+            ),
+            build_buyer_tactical_system(
+                company_name="X", days_total=15, widget_quota=20,
+                daily_penalty=2.0, terminal_penalty=75.0, revelation_days=5,
+                fmv_excellent=55.0, fmv_poor=32.0, daily_prod_cap=3,
+                current_policy=None,
+            ),
+        ]:
+            assert EM_DASH not in text, "Em-dash found in autonomous framing"
+            assert EN_DASH not in text, "En-dash found in autonomous framing"
+
+    def test_context_manager_omits_ceo_section_when_none(self):
+        cm = ContextManager()
+        result = cm.build_tactical_context(
+            state_header="Day 1 state",
+            current_policy_memo=None,
+            recent_tactical_history=[],
+            today_inbox="",
+            pending_offers="",
+            prev_outcomes="",
+            protocol_context="",
+        )
+        assert "CEO DIRECTIVE" not in result
+
+    def test_context_manager_includes_ceo_section_when_empty_string(self):
+        cm = ContextManager()
+        result = cm.build_tactical_context(
+            state_header="Day 1 state",
+            current_policy_memo="",
+            recent_tactical_history=[],
+            today_inbox="",
+            pending_offers="",
+            prev_outcomes="",
+            protocol_context="",
+        )
+        assert "CEO DIRECTIVE" in result
+        assert "No strategic directive yet" in result
+
+    def test_context_manager_includes_ceo_section_when_present(self):
+        cm = ContextManager()
+        result = cm.build_tactical_context(
+            state_header="Day 1 state",
+            current_policy_memo="Focus on premium.",
+            recent_tactical_history=[],
+            today_inbox="",
+            pending_offers="",
+            prev_outcomes="",
+            protocol_context="",
+        )
+        assert "CEO DIRECTIVE" in result
+        assert "Focus on premium." in result
 
 
 class TestCommonFormatters:

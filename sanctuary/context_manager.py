@@ -241,11 +241,14 @@ class ContextManager:
         sections.append(state_header)
 
         # Current CEO directive (trimmed to ~500 tokens)
-        if current_policy_memo:
-            memo = _truncate_to_budget(current_policy_memo, 500)
-            sections.append(f"[CURRENT CEO DIRECTIVE]\n{memo}")
-        else:
-            sections.append("[CURRENT CEO DIRECTIVE]\nNo strategic directive yet. Use your best judgment.")
+        # When current_policy_memo is None (no CEO tier), omit entirely.
+        # When it is an empty string, the CEO tier exists but has not issued yet.
+        if current_policy_memo is not None:
+            if current_policy_memo:
+                memo = _truncate_to_budget(current_policy_memo, 500)
+                sections.append(f"[CURRENT CEO DIRECTIVE]\n{memo}")
+            else:
+                sections.append("[CURRENT CEO DIRECTIVE]\nNo strategic directive yet. Use your best judgment.")
 
         # Previous turn outcomes
         if prev_outcomes:

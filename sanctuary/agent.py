@@ -454,6 +454,8 @@ class Agent:
         for o in my_pending_offers:
             offer_ids.append(o.offer_id)
 
+        policy_memo = self.current_policy.raw_memo if self.current_policy else None
+
         if self.is_seller:
             return build_seller_tactical_system(
                 company_name=self.name,
@@ -464,6 +466,7 @@ class Agent:
                 seller_names=self.seller_names,
                 buyer_names=self.buyer_names,
                 pending_offer_ids=offer_ids,
+                current_policy=policy_memo,
             )
         else:
             return build_buyer_tactical_system(
@@ -479,6 +482,7 @@ class Agent:
                 seller_names=self.seller_names,
                 buyer_names=self.buyer_names,
                 pending_offer_ids=offer_ids,
+                current_policy=policy_memo,
             )
 
     def _format_policy_history(self) -> str:

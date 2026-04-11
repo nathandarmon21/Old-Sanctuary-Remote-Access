@@ -49,10 +49,24 @@ class TestTacticalContext:
         assert "Focus on volume over margin" in result
         assert "CEO DIRECTIVE" in result
 
-    def test_no_policy_shows_default(self, cm):
+    def test_no_policy_none_omits_ceo_section(self, cm):
+        """When current_policy_memo is None (no CEO tier), omit the section."""
         result = cm.build_tactical_context(
             state_header="header",
             current_policy_memo=None,
+            recent_tactical_history=[],
+            today_inbox="",
+            pending_offers="",
+            prev_outcomes="",
+            protocol_context="",
+        )
+        assert "CEO DIRECTIVE" not in result
+
+    def test_no_policy_empty_string_shows_default(self, cm):
+        """When current_policy_memo is '' (CEO tier exists, no memo yet), show default."""
+        result = cm.build_tactical_context(
+            state_header="header",
+            current_policy_memo="",
             recent_tactical_history=[],
             today_inbox="",
             pending_offers="",
