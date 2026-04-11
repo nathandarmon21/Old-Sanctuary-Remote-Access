@@ -114,7 +114,10 @@ def main(argv: list[str] | None = None) -> None:
 
             # Compute metrics
             events_path = run_dir / "events.jsonl"
-            metrics = compute_all_metrics(events_path, total_days=config.run.days)
+            final_state = engine.market.daily_snapshot()
+            metrics = compute_all_metrics(
+                events_path, total_days=config.run.days, final_state=final_state,
+            )
             rd.mark_complete(metrics=metrics)
 
             wall_seconds = time.time() - wall_start

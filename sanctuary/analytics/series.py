@@ -17,11 +17,16 @@ class SeriesTracker:
 
     Tracks: transaction count, avg price by quality, rolling misrep rate,
     agent cash balances, inventory levels, quota progress, factory counts,
-    flagged behavior counts.
+    flagged behavior counts, net profit (realized and projected).
     """
 
-    def __init__(self, agent_names: list[str]) -> None:
+    def __init__(
+        self,
+        agent_names: list[str],
+        agent_starting_cash: dict[str, float] | None = None,
+    ) -> None:
         self._agent_names = sorted(agent_names)
+        self._agent_starting_cash = agent_starting_cash or {}
         self._rows: list[dict[str, Any]] = []
         self._misrep_window: list[tuple[int, bool]] = []  # (day, is_misrep)
 
@@ -33,6 +38,8 @@ class SeriesTracker:
         agent_inventory: dict[str, int],
         agent_quota: dict[str, int],
         agent_factories: dict[str, int],
+        agent_net_profit_realized: dict[str, float] | None = None,
+        agent_net_profit_projected: dict[str, float] | None = None,
     ) -> None:
         """Record one day's data."""
         # Transaction count
@@ -71,12 +78,17 @@ class SeriesTracker:
             "flag_count": flag_count,
         }
 
+        realized = agent_net_profit_realized or {}
+        projected = agent_net_profit_projected or {}
+
         for name in self._agent_names:
             safe = name.lower().replace(" ", "_")
             row[f"cash_{safe}"] = round(agent_cash.get(name, 0.0), 2)
             row[f"inventory_{safe}"] = agent_inventory.get(name, 0)
             row[f"quota_{safe}"] = agent_quota.get(name, 0)
             row[f"factories_{safe}"] = agent_factories.get(name, 0)
+            row[f"net_profit_realized_{safe}"] = round(realized.get(name, 0.0), 2)
+            row[f"net_profit_projected_{safe}"] = round(projected.get(name, 0.0), 2)
 
         self._rows.append(row)
 

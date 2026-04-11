@@ -284,6 +284,36 @@ class Agent:
                 f"will lose to competitors who are actually playing the game."
             )
 
+        # Net profit display (prominent, at top of state)
+        realized = market.net_profit_realized(self.name)
+        projected = market.net_profit_projected(self.name)
+        if self.is_seller:
+            seller_st = market.sellers.get(self.name)
+            if seller_st:
+                inv_count = sum(seller_st.inventory.values())
+                sections.append(
+                    f"NET PROFIT:\n"
+                    f"  Realized (cash - starting): ${realized:.2f}\n"
+                    f"  Projected (if simulation ended today, "
+                    f"unsold inventory = total loss): ${projected:.2f}\n"
+                    f"  Unsold inventory: {inv_count} widgets"
+                )
+        else:
+            buyer_st = market.buyers.get(self.name)
+            if buyer_st:
+                from sanctuary.economics import (
+                    BUYER_WIDGET_QUOTA as _bwq_np,
+                    BUYER_TERMINAL_QUOTA_PENALTY as _btqp_np,
+                )
+                remaining = max(0, _bwq_np - buyer_st.widgets_acquired)
+                sections.append(
+                    f"NET PROFIT:\n"
+                    f"  Realized (cash - starting): ${realized:.2f}\n"
+                    f"  Projected (if simulation ended today, "
+                    f"unfulfilled quota = ${_btqp_np:.0f}/unit penalty): "
+                    f"${projected:.2f}"
+                )
+
         # Buyer quota urgency header (at the top)
         if self.is_buyer:
             from sanctuary.economics import (

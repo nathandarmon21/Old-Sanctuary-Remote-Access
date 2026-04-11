@@ -27,6 +27,7 @@ from sanctuary.metrics.misrepresentation import compute_misrepresentation_rate
 def compute_all_metrics(
     events_path: Path,
     total_days: int = 30,
+    final_state: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     Read events.jsonl and compute all automatic metrics.
@@ -43,7 +44,7 @@ def compute_all_metrics(
     er = compute_exploitation_rate(events, total_days=total_days)
     tp = compute_trust_persistence(events)
 
-    return {
+    result: dict[str, Any] = {
         "misrepresentation": misrep,
         "allocative_efficiency": ae,
         "price_cost_margin": pcm,
@@ -54,6 +55,25 @@ def compute_all_metrics(
             "trust_persistence": tp,
         },
     }
+
+    # Per-agent net profit from final state snapshot
+    if final_state:
+        per_agent: dict[str, dict[str, float]] = {}
+        for name, data in final_state.get("sellers", {}).items():
+            per_agent[name] = {
+                "net_profit_realized": data.get("net_profit_realized", 0.0),
+                "net_profit_projected": data.get("net_profit_projected", 0.0),
+                "role": "seller",
+            }
+        for name, data in final_state.get("buyers", {}).items():
+            per_agent[name] = {
+                "net_profit_realized": data.get("net_profit_realized", 0.0),
+                "net_profit_projected": data.get("net_profit_projected", 0.0),
+                "role": "buyer",
+            }
+        result["per_agent_net_profit"] = per_agent
+
+    return result
 
 
 def write_metrics(metrics: dict[str, Any], output_path: Path) -> None:

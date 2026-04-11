@@ -106,6 +106,7 @@ class SellerState:
     last_active_day: int = 0
     consecutive_inactive_days: int = 0
     production_costs_incurred: float = 0.0  # cumulative production costs paid
+    starting_cash: float = 0.0  # set at market creation for net profit display
 
 
 @dataclass
@@ -119,6 +120,7 @@ class BuyerState:
     consecutive_inactive_days: int = 0
     widgets_acquired: int = 0       # cumulative widgets purchased toward quota
     penalties_accrued: float = 0.0  # cumulative daily quota penalties charged
+    starting_cash: float = 0.0  # set at market creation for net profit display
 
 
 @dataclass
@@ -188,6 +190,43 @@ class MarketState:
         self.transactions: list[TransactionRecord] = []
         self.fg_prices: dict[str, float] = fg_prices or dict(FINAL_GOOD_BASE_PRICES)
         self.current_day: int = 0
+
+    # ── Net profit computation ─────────────────────────────────────────────
+
+    def net_profit_realized(self, agent_name: str) -> float:
+        """Net profit realized: current_cash - starting_cash."""
+        if agent_name in self.sellers:
+            s = self.sellers[agent_name]
+            return s.cash - s.starting_cash
+        if agent_name in self.buyers:
+            b = self.buyers[agent_name]
+            return b.cash - b.starting_cash
+        return 0.0
+
+    def net_profit_projected(self, agent_name: str) -> float:
+        """
+        Projected net profit if simulation ended now.
+
+        Sellers: realized minus unsold inventory at production cost (total loss).
+        Buyers: realized minus terminal penalty for unfulfilled quota.
+        """
+        if agent_name in self.sellers:
+            s = self.sellers[agent_name]
+            realized = s.cash - s.starting_cash
+            total_inv = sum(s.inventory.values())
+            # Estimate avg production cost from cumulative costs / total produced
+            # Use current factory count for cost estimate
+            from sanctuary.economics import production_cost as _pc
+            avg_cost = (
+                _pc("Excellent", s.factories) + _pc("Poor", s.factories)
+            ) / 2.0
+            return realized - (total_inv * avg_cost)
+        if agent_name in self.buyers:
+            b = self.buyers[agent_name]
+            realized = b.cash - b.starting_cash
+            remaining = max(0, BUYER_WIDGET_QUOTA - b.widgets_acquired)
+            return realized - (remaining * BUYER_TERMINAL_QUOTA_PENALTY)
+        return 0.0
 
     # ── Inventory visibility ─────────────────────────────────────────────────
 
@@ -708,6 +747,9 @@ class MarketState:
                 "factories": s.factories,
                 "factory_build_queue": list(s.factory_build_queue),
                 "bankrupt": s.bankrupt,
+                "starting_cash": s.starting_cash,
+                "net_profit_realized": round(self.net_profit_realized(name), 4),
+                "net_profit_projected": round(self.net_profit_projected(name), 4),
             }
 
         buyers_snap = {}
@@ -719,6 +761,9 @@ class MarketState:
                 "widgets_acquired": b.widgets_acquired,
                 "quota_remaining": max(0, BUYER_WIDGET_QUOTA - b.widgets_acquired),
                 "bankrupt": b.bankrupt,
+                "starting_cash": b.starting_cash,
+                "net_profit_realized": round(self.net_profit_realized(name), 4),
+                "net_profit_projected": round(self.net_profit_projected(name), 4),
             }
 
         return {
@@ -1083,6 +1128,7 @@ def build_initial_market(
             cash=cash,
             inventory={"Excellent": excellent, "Poor": poor},
             factories=seller_factories,
+            starting_cash=cash,
         )
 
     buyers: dict[str, BuyerState] = {}
@@ -1090,6 +1136,7 @@ def build_initial_market(
         buyers[bc["name"]] = BuyerState(
             name=bc["name"],
             cash=buyer_cash,
+            starting_cash=buyer_cash,
         )
 
     return MarketState(

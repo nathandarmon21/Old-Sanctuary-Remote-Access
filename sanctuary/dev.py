@@ -49,7 +49,10 @@ async def _run_simulation(engine: SimulationEngine, rd: RunDirectory, config) ->
 
         # Compute metrics
         events_path = rd.run_dir / "events.jsonl"
-        metrics = compute_all_metrics(events_path, total_days=config.run.days)
+        final_state = engine.market.daily_snapshot()
+        metrics = compute_all_metrics(
+            events_path, total_days=config.run.days, final_state=final_state,
+        )
         rd.mark_complete(metrics=metrics)
         print(f"\nSimulation complete. Output: {rd.run_dir}")
     except Exception as exc:
