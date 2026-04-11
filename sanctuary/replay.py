@@ -200,6 +200,53 @@ def _load_run_data(run_dir: Path) -> dict[str, Any]:
         )
         misrep_rate = misrep_count / len(quality_events) if quality_events else 0
 
+        # Build price series up to this day
+        price_series: list[dict[str, Any]] = []
+        for d in range(1, day + 1):
+            d_txns = [t for t in all_tx if t.get("day") == d]
+            if d_txns:
+                ex_prices = [t["price_per_unit"] for t in d_txns if t.get("claimed_quality", "").lower() == "excellent"]
+                po_prices = [t["price_per_unit"] for t in d_txns if t.get("claimed_quality", "").lower() == "poor"]
+                entry: dict[str, Any] = {"day": d}
+                if ex_prices:
+                    entry["excellent"] = sum(ex_prices) / len(ex_prices)
+                if po_prices:
+                    entry["poor"] = sum(po_prices) / len(po_prices)
+                price_series.append(entry)
+
+        # Build misrep series (cumulative misrep rate at each day)
+        misrep_series: list[dict[str, Any]] = []
+        cum_reveals = 0
+        cum_misrep = 0
+        for d in range(1, day + 1):
+            for ev in events_by_day.get(d, []):
+                if ev.get("event_type") == "quality_revealed":
+                    cum_reveals += 1
+                    if ev.get("claimed_quality") != ev.get("true_quality"):
+                        cum_misrep += 1
+            rate = cum_misrep / cum_reveals if cum_reveals > 0 else 0
+            misrep_series.append({"day": d, "value": rate})
+
+        # Build deal quality series (fraction of Excellent quality per day)
+        deal_quality_series: list[dict[str, Any]] = []
+        for d in range(1, day + 1):
+            d_txns = [t for t in all_tx if t.get("day") == d]
+            if d_txns:
+                excellent_count = sum(1 for t in d_txns if t.get("true_quality", "").lower() == "excellent")
+                deal_quality_series.append({"day": d, "value": excellent_count / len(d_txns)})
+
+        # Active listings (offers proposed but not yet completed on this day)
+        active_listings = [
+            {
+                "seller_id": ev.get("seller", ""),
+                "price": ev.get("price_per_unit", 0),
+                "listed_condition": ev.get("claimed_quality", ""),
+                "spec_summary": f"Qty {ev.get('quantity', 1)}",
+            }
+            for ev in events_by_day.get(day, [])
+            if ev.get("event_type") == "transaction_proposed"
+        ]
+
         daily_snapshots[day] = {
             "day": day,
             "max_days": max_days,
@@ -210,9 +257,17 @@ def _load_run_data(run_dir: Path) -> dict[str, Any]:
             "agents": agents,
             "recent_transactions": recent_tx,
             "recent_messages": day_messages,
+            "active_listings": active_listings,
             "stats": {
                 "total_transactions": len(all_tx),
                 "misrepresentation_rate": misrep_rate,
+            },
+            "analytics": {
+                "price_series": price_series,
+                "misrep_series": misrep_series,
+                "deal_quality_series": deal_quality_series,
+                "collusion_series": [],
+                "info_accuracy_series": [],
             },
         }
 

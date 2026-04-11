@@ -458,6 +458,33 @@ html, body { height: 100%; font-family: var(--font); font-size: 14px; color: var
   accent-color: var(--accent);
 }
 
+.btn-play {
+  background: transparent;
+  border-color: var(--green);
+  color: var(--green);
+  padding: 4px 10px;
+  font-size: 11px;
+}
+.btn-play:hover { background: rgba(76,175,130,0.08); }
+.btn-play.playing {
+  border-color: var(--amber);
+  color: var(--amber);
+}
+.btn-play.playing:hover { background: rgba(212,136,42,0.08); }
+
+.replay-speed-select {
+  padding: 3px 6px;
+  border: 1.5px solid var(--card-border);
+  border-radius: 5px;
+  font-size: 11px;
+  font-family: var(--font);
+  color: var(--text-sec);
+  background: var(--card);
+  cursor: pointer;
+  outline: none;
+}
+.replay-speed-select:focus { border-color: var(--accent); }
+
 .tb-btn {
   padding: 5px 12px;
   border-radius: 6px;
@@ -1253,9 +1280,15 @@ html, body { height: 100%; font-family: var(--font); font-size: 14px; color: var
 
     <!-- Replay controls (shown in replay mode) -->
     <div id="replayControls" class="tb-scrubber-group hidden">
-      <span>Replay Day</span>
+      <button class="tb-btn btn-play" id="btnReplayPlay" title="Play through days">&#9654; Play</button>
+      <select id="replaySpeed" class="replay-speed-select" title="Playback speed">
+        <option value="3000">Slow (3s)</option>
+        <option value="1500" selected>Normal (1.5s)</option>
+        <option value="700">Fast (0.7s)</option>
+      </select>
+      <span style="color:var(--text-muted)">Day</span>
       <input class="tb-scrubber" type="range" id="tbScrubber" min="1" max="60" value="1">
-      <span id="tbScrubberVal">1</span>
+      <span id="tbScrubberVal" style="min-width:18px;text-align:center;font-weight:600">1</span>
     </div>
 
     <button class="tb-btn btn-new" id="btnNew">&#8617; New Experiment</button>
@@ -1548,7 +1581,12 @@ async function init() {
       if (data && data.day > 0 && !data.error) {
         applyState(data);
         showDashboard();
-        connectWS();
+        if (data.replay_mode) {
+          // In replay mode: seek to final day to populate chart histories
+          await replaySeekToDay(data.day);
+        } else {
+          connectWS();
+        }
         return;
       }
     }
@@ -1766,8 +1804,9 @@ function wsSend(obj) {
   }
 }
 
-// Polling fallback
+// Polling fallback (disabled in replay mode — scrubber controls state)
 setInterval(async () => {
+  if (state.replay_mode) return;
   if (document.getElementById('dashboard').classList.contains('hidden')) return;
   try {
     const r = await fetch('/api/state');
@@ -2499,23 +2538,92 @@ document.getElementById('tbScrubber').addEventListener('input', (e) => {
 });
 document.getElementById('tbScrubber').addEventListener('change', async (e) => {
   const day = parseInt(e.target.value);
+  await replaySeekToDay(day);
+});
+
+// -- Replay playback engine --
+let replayPlaying = false;
+let replayTimer = null;
+
+async function replaySeekToDay(day) {
   document.getElementById('tbScrubberVal').textContent = day;
+  document.getElementById('tbScrubber').value = day;
   try {
     const res = await fetch(`/api/replay/day/${day}`);
-    if (res.ok) {
-      const data = await res.json();
-      // Reset chart histories so they rebuild from the scrubbed position
-      balanceHistory = {};
-      misrepHistory = [];
-      priceHistory = {};
-      applyState(data);
-      renderDashboard();
+    if (!res.ok) return;
+    const data = await res.json();
+    // Rebuild chart histories from agent balance_history in the snapshot
+    balanceHistory = {};
+    misrepHistory = [];
+    priceHistory = {};
+    // Populate balance history from agent data (each agent has balance_history array)
+    for (const [id, agent] of Object.entries(data.agents || {})) {
+      if (agent.balance_history && agent.balance_history.length) {
+        balanceHistory[id] = agent.balance_history.filter(h => h.day <= day);
+      }
     }
+    // Populate price history from recent_transactions
+    for (const tx of (data.recent_transactions || [])) {
+      const d = tx.day;
+      const q = tx.claimed_quality;
+      const ppu = tx.price_per_unit ?? tx.price;
+      if (d == null || !q || ppu == null) continue;
+      if (!priceHistory[d]) priceHistory[d] = {};
+      const qKey = q.toLowerCase();
+      if (qKey === 'excellent' || qKey === 'Excellent') {
+        if (!priceHistory[d].excellent) priceHistory[d].excellent = [];
+        priceHistory[d].excellent.push(ppu);
+      } else {
+        if (!priceHistory[d].poor) priceHistory[d].poor = [];
+        priceHistory[d].poor.push(ppu);
+      }
+    }
+    applyState(data);
+    renderDashboard();
   } catch(err) {
-    // Fallback to WS
     wsSend({ cmd: 'seek', day });
   }
+}
+
+document.getElementById('btnReplayPlay').addEventListener('click', () => {
+  if (replayPlaying) {
+    replayStop();
+  } else {
+    replayStart();
+  }
 });
+
+function replayStart() {
+  replayPlaying = true;
+  const btn = document.getElementById('btnReplayPlay');
+  btn.innerHTML = '&#9646;&#9646; Pause';
+  btn.classList.add('playing');
+  replayAdvance();
+}
+
+function replayStop() {
+  replayPlaying = false;
+  if (replayTimer) { clearTimeout(replayTimer); replayTimer = null; }
+  const btn = document.getElementById('btnReplayPlay');
+  btn.innerHTML = '&#9654; Play';
+  btn.classList.remove('playing');
+}
+
+async function replayAdvance() {
+  if (!replayPlaying) return;
+  const scrubber = document.getElementById('tbScrubber');
+  const current = parseInt(scrubber.value);
+  const max = parseInt(scrubber.max);
+  if (current >= max) {
+    replayStop();
+    return;
+  }
+  const next = current + 1;
+  await replaySeekToDay(next);
+  if (!replayPlaying) return; // may have been stopped during fetch
+  const speed = parseInt(document.getElementById('replaySpeed').value) || 1500;
+  replayTimer = setTimeout(replayAdvance, speed);
+}
 
 document.getElementById('btnNew').addEventListener('click', () => {
   if (ws) { try { ws.close(); } catch(e) {} ws = null; }
