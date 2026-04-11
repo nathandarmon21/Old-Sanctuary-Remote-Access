@@ -158,8 +158,8 @@ async def _handle_ws_command(msg: dict[str, Any], ws: WebSocket) -> None:
     """Handle a WebSocket command from the client."""
     cmd = msg.get("cmd")
     if not _engine:
-        # Replay mode commands
-        if _replay_data and cmd == "scrub":
+        # Replay mode commands (frontend sends 'seek', also accept 'scrub')
+        if _replay_data and cmd in ("seek", "scrub"):
             day = int(msg.get("day", 1))
             state = _get_replay_state_at_day(day)
             if state:
@@ -227,12 +227,23 @@ def _build_engine_state() -> dict[str, Any]:
     }
 
 
+@app.get("/api/replay/day/{day}")
+async def replay_day(day: int):
+    """HTTP endpoint for scrubbing to a specific day in replay mode."""
+    if not _replay_data:
+        return JSONResponse({"error": "Not in replay mode"}, status_code=400)
+    state = _get_replay_state_at_day(day)
+    if state:
+        return JSONResponse(state)
+    return JSONResponse({"error": f"No data for day {day}"}, status_code=404)
+
+
 def _get_replay_state_at_day(day: int) -> dict[str, Any] | None:
     """Get state snapshot for a specific day in replay mode."""
     if not _replay_data:
         return None
-    snapshots = _replay_data.get("daily_snapshots", [])
-    for snap in snapshots:
-        if snap.get("day") == day:
-            return snap
-    return None
+    snapshots = _replay_data.get("daily_snapshots", {})
+    # Clamp day to valid range
+    max_days = _replay_data.get("manifest", {}).get("days_total", 30)
+    day = max(1, min(day, max_days))
+    return snapshots.get(day)

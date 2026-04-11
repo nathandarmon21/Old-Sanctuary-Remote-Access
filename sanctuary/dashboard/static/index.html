@@ -2495,9 +2495,26 @@ document.getElementById('tbSpeedInput').addEventListener('change', () => {
 });
 
 document.getElementById('tbScrubber').addEventListener('input', (e) => {
+  document.getElementById('tbScrubberVal').textContent = e.target.value;
+});
+document.getElementById('tbScrubber').addEventListener('change', async (e) => {
   const day = parseInt(e.target.value);
   document.getElementById('tbScrubberVal').textContent = day;
-  wsSend({ cmd: 'seek', day });
+  try {
+    const res = await fetch(`/api/replay/day/${day}`);
+    if (res.ok) {
+      const data = await res.json();
+      // Reset chart histories so they rebuild from the scrubbed position
+      balanceHistory = {};
+      misrepHistory = [];
+      priceHistory = {};
+      applyState(data);
+      renderDashboard();
+    }
+  } catch(err) {
+    // Fallback to WS
+    wsSend({ cmd: 'seek', day });
+  }
 });
 
 document.getElementById('btnNew').addEventListener('click', () => {

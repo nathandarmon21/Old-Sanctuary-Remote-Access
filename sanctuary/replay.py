@@ -28,6 +28,117 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def _build_agents_dict(
+    final_state: dict[str, Any],
+    manifest: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """Build agents dict (keyed by name) from final_state.json sellers/buyers."""
+    agents: dict[str, dict[str, Any]] = {}
+    for name, data in final_state.get("sellers", {}).items():
+        agents[name] = {
+            "id": name,
+            "name": name,
+            "role": "seller",
+            "balance": data.get("cash", 0),
+            "factories": data.get("factories", 1),
+            "inventory_count": data.get("inventory_excellent", 0) + data.get("inventory_poor", 0),
+            "bankrupt": data.get("bankrupt", False),
+            "quality_accuracy": 1.0,
+            "net_profit": 0,
+        }
+    for name, data in final_state.get("buyers", {}).items():
+        agents[name] = {
+            "id": name,
+            "name": name,
+            "role": "buyer",
+            "balance": data.get("cash", 0),
+            "acquired": data.get("widgets_acquired", 0),
+            "quota": 20,
+            "quota_remaining": data.get("quota_remaining", 20),
+            "total_penalties": 0,
+            "bankrupt": data.get("bankrupt", False),
+        }
+    return agents
+
+
+def _build_agents_at_day(
+    day: int,
+    events_by_day: dict[int, list[dict[str, Any]]],
+    final_state: dict[str, Any],
+    manifest: dict[str, Any],
+    initial_cash: float = 5000.0,
+) -> dict[str, dict[str, Any]]:
+    """
+    Reconstruct approximate agent state at a given day by replaying
+    transactions, quality reveals, and offers from events.
+    """
+    agent_names = manifest.get("agent_names", [])
+    sellers = set(final_state.get("sellers", {}).keys())
+    buyers = set(final_state.get("buyers", {}).keys())
+
+    # Start with initial state
+    agents: dict[str, dict[str, Any]] = {}
+    for name in agent_names:
+        if name in sellers:
+            agents[name] = {
+                "id": name, "name": name, "role": "seller",
+                "balance": initial_cash, "factories": 1,
+                "inventory_count": 0, "bankrupt": False,
+                "quality_accuracy": 1.0, "net_profit": 0,
+                "balance_history": [],
+                "total_true_quality_matches": 0,
+                "total_deliveries": 0,
+            }
+        elif name in buyers:
+            agents[name] = {
+                "id": name, "name": name, "role": "buyer",
+                "balance": initial_cash, "acquired": 0, "quota": 20,
+                "quota_remaining": 20, "total_penalties": 0,
+                "bankrupt": False, "balance_history": [],
+            }
+
+    # Replay events day by day up to target day
+    for d in range(0, day + 1):
+        day_events = events_by_day.get(d, [])
+        for ev in day_events:
+            et = ev.get("event_type", "")
+
+            if et == "transaction_completed":
+                seller_name = ev.get("seller", "")
+                buyer_name = ev.get("buyer", "")
+                price = ev.get("price_per_unit", 0) * ev.get("quantity", 1)
+
+                if seller_name in agents:
+                    agents[seller_name]["balance"] += price
+                if buyer_name in agents:
+                    agents[buyer_name]["balance"] -= price
+                    agents[buyer_name]["acquired"] = agents[buyer_name].get("acquired", 0) + ev.get("quantity", 1)
+                    agents[buyer_name]["quota_remaining"] = max(0, 20 - agents[buyer_name].get("acquired", 0))
+
+            elif et == "quality_revealed":
+                seller_name = ev.get("seller", "")
+                claimed = ev.get("claimed_quality", "")
+                true_q = ev.get("true_quality", "")
+                if seller_name in agents and agents[seller_name]["role"] == "seller":
+                    agents[seller_name]["total_deliveries"] += 1
+                    if claimed == true_q:
+                        agents[seller_name]["total_true_quality_matches"] += 1
+                    total = agents[seller_name]["total_deliveries"]
+                    matches = agents[seller_name]["total_true_quality_matches"]
+                    agents[seller_name]["quality_accuracy"] = matches / total if total > 0 else 1.0
+
+        # Record balance at end of each day
+        for name, agent in agents.items():
+            agent["balance_history"].append({"day": d, "balance": agent["balance"]})
+
+    # Compute net_profit for sellers
+    for name, agent in agents.items():
+        if agent["role"] == "seller":
+            agent["net_profit"] = agent["balance"] - initial_cash
+
+    return agents
+
+
 def _load_run_data(run_dir: Path) -> dict[str, Any]:
     """Load all data from a completed run directory for replay."""
     # Read manifest
@@ -42,16 +153,12 @@ def _load_run_data(run_dir: Path) -> dict[str, Any]:
     events = read_events(events_path) if events_path.exists() else []
     events_by_day = read_events_by_day(events_path) if events_path.exists() else {}
 
-    # Build daily snapshots from day_end events or market snapshots
-    daily_snapshots: list[dict[str, Any]] = []
-    for day in sorted(events_by_day.keys()):
-        day_evts = events_by_day[day]
-        # Look for the last snapshot-like event of the day
-        snapshot: dict[str, Any] = {"day": day}
-        for e in day_evts:
-            if e.get("event_type") == "day_end":
-                snapshot = {**snapshot, **e}
-        daily_snapshots.append(snapshot)
+    # Read final_state.json
+    final_state_path = run_dir / "final_state.json"
+    final_state: dict[str, Any] = {}
+    if final_state_path.exists():
+        with open(final_state_path) as f:
+            final_state = json.load(f)
 
     # Read metrics
     metrics_path = run_dir / "metrics.json"
@@ -60,19 +167,66 @@ def _load_run_data(run_dir: Path) -> dict[str, Any]:
         with open(metrics_path) as f:
             metrics = json.load(f)
 
-    # Current state = last snapshot
-    current_state: dict[str, Any] = {
-        "day": manifest.get("days_total", 30),
-        "max_days": manifest.get("days_total", 30),
+    max_days = manifest.get("days_total", 30)
+
+    # Pre-build per-day snapshots with full state
+    daily_snapshots: dict[int, dict[str, Any]] = {}
+    for day in range(1, max_days + 1):
+        agents = _build_agents_at_day(day, events_by_day, final_state, manifest)
+
+        # Collect transactions up to this day
+        all_tx = []
+        for d in range(1, day + 1):
+            for ev in events_by_day.get(d, []):
+                if ev.get("event_type") == "transaction_completed":
+                    all_tx.append(ev)
+        recent_tx = all_tx[-15:]
+
+        # Collect messages for this day
+        day_messages = [
+            ev for ev in events_by_day.get(day, [])
+            if ev.get("event_type") == "message_sent"
+        ]
+
+        # Build stats
+        quality_events = []
+        for d in range(1, day + 1):
+            for ev in events_by_day.get(d, []):
+                if ev.get("event_type") == "quality_revealed":
+                    quality_events.append(ev)
+        misrep_count = sum(
+            1 for qe in quality_events
+            if qe.get("claimed_quality") != qe.get("true_quality")
+        )
+        misrep_rate = misrep_count / len(quality_events) if quality_events else 0
+
+        daily_snapshots[day] = {
+            "day": day,
+            "max_days": max_days,
+            "protocol": manifest.get("config", {}).get("protocol", "unknown"),
+            "paused": True,
+            "completed": day >= max_days,
+            "replay_mode": True,
+            "agents": agents,
+            "recent_transactions": recent_tx,
+            "recent_messages": day_messages,
+            "stats": {
+                "total_transactions": len(all_tx),
+                "misrepresentation_rate": misrep_rate,
+            },
+        }
+
+    # Current state = final day snapshot
+    current_state = daily_snapshots.get(max_days, {
+        "day": max_days,
+        "max_days": max_days,
         "protocol": "unknown",
-        "paused": False,
+        "paused": True,
         "completed": True,
         "replay_mode": True,
-        "manifest": manifest,
-        "metrics": metrics,
-    }
-    if daily_snapshots:
-        current_state.update(daily_snapshots[-1])
+    })
+    current_state["manifest"] = manifest
+    current_state["metrics"] = metrics
 
     return {
         "manifest": manifest,
