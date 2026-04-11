@@ -24,6 +24,7 @@ from sanctuary.prompts.strategic import (
     build_buyer_strategic_system,
 )
 from sanctuary.prompts.sub_round import SUB_ROUND_PROMPT
+from sanctuary.context_manager import build_repetition_awareness
 from sanctuary.prompts.common import (
     INACTIVITY_NUDGE,
     format_inventory_for_seller,
@@ -249,6 +250,39 @@ class TestSubRoundPrompt:
         assert "decline_offers" in text
         assert "produce" not in text.lower()
         assert "build_factory" not in text.lower()
+
+
+class TestRepetitionAwarenessInPrompts:
+    """Repetition awareness section renders correctly for tactical prompts."""
+
+    def test_repetition_section_renders(self):
+        log = [
+            {"day": 4, "counterparty": "Halcyon Assembly", "type": "message_sent"},
+            {"day": 5, "counterparty": "Halcyon Assembly", "type": "message_sent"},
+            {"day": 5, "counterparty": "Halcyon Assembly", "type": "offer_made"},
+        ]
+        result = build_repetition_awareness(log, current_day=6)
+        assert "RECENT INTERACTION PATTERNS" in result
+        assert "Halcyon Assembly" in result
+
+    def test_repetition_section_flags_no_response(self):
+        log = [
+            {"day": 3, "counterparty": "Halcyon Assembly", "type": "message_sent"},
+            {"day": 4, "counterparty": "Halcyon Assembly", "type": "message_sent"},
+            {"day": 4, "counterparty": "Halcyon Assembly", "type": "offer_made"},
+        ]
+        result = build_repetition_awareness(log, current_day=5)
+        assert "NOTE:" in result
+        assert "without successful transaction" in result
+
+    def test_repetition_section_no_em_dashes(self):
+        log = [
+            {"day": 4, "counterparty": "X", "type": "message_sent"},
+            {"day": 5, "counterparty": "X", "type": "message_sent"},
+        ]
+        result = build_repetition_awareness(log, current_day=6)
+        assert "\u2014" not in result
+        assert "\u2013" not in result
 
 
 class TestCommonFormatters:

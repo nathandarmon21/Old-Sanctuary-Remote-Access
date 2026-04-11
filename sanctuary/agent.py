@@ -35,6 +35,7 @@ from sanctuary.prompts.common import (
     format_pending_offers_for_seller,
     format_prev_outcomes,
 )
+from sanctuary.context_manager import build_repetition_awareness
 from sanctuary.prompts.sub_round import SUB_ROUND_PROMPT
 
 
@@ -148,9 +149,20 @@ class Agent:
         self.policy_history: list[PolicyRecord] = []
         self.current_policy: PolicyRecord | None = None
 
+        # Interaction tracking for repetition awareness
+        self.interaction_log: list[dict[str, Any]] = []
+
         # Call counters
         self.tactical_call_count: int = 0
         self.strategic_call_count: int = 0
+
+    def record_interaction(self, day: int, counterparty: str, interaction_type: str) -> None:
+        """Record an interaction event for repetition awareness tracking."""
+        self.interaction_log.append({
+            "day": day,
+            "counterparty": counterparty,
+            "type": interaction_type,
+        })
 
     @property
     def is_seller(self) -> bool:
@@ -245,7 +257,11 @@ class Agent:
             prev_outcomes=prev_outcomes or [],
         )
 
+        # Build user message with repetition awareness
+        rep_awareness = build_repetition_awareness(self.interaction_log, day)
         user_content = f"Day {day} -- please make your tactical decisions."
+        if rep_awareness:
+            user_content = f"{rep_awareness}\n\n{user_content}"
         self.history.append({"role": "user", "content": user_content})
         self.tactical_history.append({"role": "user", "content": user_content})
 

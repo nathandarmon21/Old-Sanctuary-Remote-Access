@@ -295,6 +295,13 @@ class SimulationEngine:
         expired = self.market.expire_stale_offers(day)
         for oid in expired:
             self.run_dir.events.write_event("offer_expired", day=day, offer_id=oid)
+            # Record expiry interactions on both parties
+            offer = self.market.pending_offers.get(oid)
+            if offer:
+                if offer.seller in self.agents:
+                    self.agents[offer.seller].record_interaction(day, offer.buyer, "offer_expired")
+                if offer.buyer in self.agents:
+                    self.agents[offer.buyer].record_interaction(day, offer.seller, "offer_expired")
 
         # 8. Strategic tier (on configured days)
         if day in self.config.run.strategic_tier_days:
@@ -574,6 +581,10 @@ class SimulationEngine:
                     content=msg.body, is_public=msg.public,
                     sub_round=0,
                 )
+                agent.record_interaction(day, msg.to, "message_sent")
+                # Record on recipient as a received response
+                if msg.to in self.agents:
+                    self.agents[msg.to].record_interaction(day, name, "response_received")
             except Exception as e:
                 self._curr_outcomes[name].append(f"Message to {msg.to}: FAILED ({e})")
 
@@ -596,6 +607,7 @@ class SimulationEngine:
                         claimed_quality=offer.claimed_quality,
                         price_per_unit=offer.price_per_unit,
                     )
+                    agent.record_interaction(day, offer.to, "offer_made")
                     self._curr_outcomes[name].append(
                         f"Offer to {offer.to}: {offer.qty}x {offer.claimed_quality} "
                         f"at ${offer.price_per_unit:.2f} -- PLACED (ID: {pending.offer_id})"
@@ -656,6 +668,7 @@ class SimulationEngine:
                         price_per_unit=offer.price_per_unit,
                         day=day,
                     )
+                    self.agents[name].record_interaction(day, offer.to, "offer_made")
                     self.run_dir.events.write_event(
                         "transaction_proposed", day=day,
                         offer_id=pending.offer_id, seller=offer.to,
@@ -750,6 +763,12 @@ class SimulationEngine:
             broadcasts = self.protocol.on_transaction_completed(tx, self.agents)
             for msg in broadcasts:
                 self.run_dir.events.write_event("protocol_hook", day=day, hook="on_transaction_completed", output=msg)
+
+            # Record successful transaction interactions
+            if buyer_name in self.agents:
+                self.agents[buyer_name].record_interaction(day, offer.seller, "offer_accepted")
+            if offer.seller in self.agents:
+                self.agents[offer.seller].record_interaction(day, buyer_name, "offer_accepted")
 
             # Track transactions today
             self._transactions_today.add(buyer_name)

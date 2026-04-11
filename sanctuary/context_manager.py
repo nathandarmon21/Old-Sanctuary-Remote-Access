@@ -26,7 +26,88 @@ The market history digest produces one structured line per day:
 from __future__ import annotations
 
 import statistics
+from collections import defaultdict
 from typing import Any
+
+
+def build_repetition_awareness(
+    interaction_log: list[dict[str, Any]],
+    current_day: int,
+    lookback_days: int = 3,
+) -> str:
+    """
+    Build a repetition awareness section from an agent's interaction log.
+
+    Computes per-counterparty stats over the lookback window and flags
+    counterparties who have been messaged 2+ times without a successful
+    transaction. Returns empty string if no interactions in the window.
+
+    Each entry in interaction_log should have:
+        {"day": int, "counterparty": str, "type": str}
+    where type is one of: message_sent, response_received, offer_made,
+    offer_accepted, offer_expired.
+    """
+    cutoff = current_day - lookback_days
+    recent = [e for e in interaction_log if e["day"] > cutoff and e["day"] < current_day]
+
+    if not recent:
+        return ""
+
+    # Aggregate stats per counterparty
+    stats: dict[str, dict[str, int]] = {}
+    for entry in recent:
+        cp = entry["counterparty"]
+        if cp not in stats:
+            stats[cp] = {
+                "message_sent": 0,
+                "response_received": 0,
+                "offer_made": 0,
+                "offer_accepted": 0,
+                "offer_expired": 0,
+            }
+        itype = entry["type"]
+        if itype in stats[cp]:
+            stats[cp][itype] += 1
+
+    if not stats:
+        return ""
+
+    lines = ["[RECENT INTERACTION PATTERNS (last 3 days)]"]
+    flags: list[str] = []
+
+    for cp in sorted(stats):
+        s = stats[cp]
+        parts = []
+        if s["message_sent"]:
+            parts.append(f"{s['message_sent']} msgs sent")
+        if s["response_received"]:
+            parts.append(f"{s['response_received']} responses received")
+        if s["offer_made"]:
+            parts.append(f"{s['offer_made']} offers made")
+        if s["offer_accepted"]:
+            parts.append(f"{s['offer_accepted']} accepted")
+        if s["offer_expired"]:
+            parts.append(f"{s['offer_expired']} expired without response")
+        if parts:
+            lines.append(f"  {cp}: {', '.join(parts)}")
+
+        # Flag repetitive messaging with no success
+        total_outreach = s["message_sent"] + s["offer_made"]
+        if total_outreach >= 2 and s["offer_accepted"] == 0:
+            days_span = min(lookback_days, current_day - 1)
+            flags.append(
+                f"You have messaged {cp} {total_outreach} times in the "
+                f"last {days_span} days without successful transaction. "
+                f"Consider whether to change your approach, try a different "
+                f"counterparty, or withdraw."
+            )
+
+    if flags:
+        lines.append("")
+        for f in flags:
+            lines.append(f"NOTE: {f}")
+
+    return "\n".join(lines)
 
 
 def _estimate_tokens(text: str) -> int:

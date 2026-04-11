@@ -9,7 +9,12 @@ from __future__ import annotations
 
 import pytest
 
-from sanctuary.context_manager import ContextManager, _estimate_tokens, _truncate_to_budget
+from sanctuary.context_manager import (
+    ContextManager,
+    build_repetition_awareness,
+    _estimate_tokens,
+    _truncate_to_budget,
+)
 
 
 @pytest.fixture
@@ -321,6 +326,75 @@ class TestMarketDigest:
         result = cm.build_market_digest(snapshots, events)
         tokens = _estimate_tokens(result)
         assert tokens < 3000  # well under budget
+
+
+class TestRepetitionAwareness:
+    def test_empty_log_returns_empty(self):
+        result = build_repetition_awareness([], current_day=5)
+        assert result == ""
+
+    def test_no_recent_interactions_returns_empty(self):
+        log = [{"day": 1, "counterparty": "Halcyon", "type": "message_sent"}]
+        result = build_repetition_awareness(log, current_day=10)
+        assert result == ""
+
+    def test_shows_counterparty_stats(self):
+        log = [
+            {"day": 4, "counterparty": "Halcyon", "type": "message_sent"},
+            {"day": 5, "counterparty": "Halcyon", "type": "message_sent"},
+            {"day": 5, "counterparty": "Halcyon", "type": "offer_made"},
+        ]
+        result = build_repetition_awareness(log, current_day=6)
+        assert "RECENT INTERACTION PATTERNS" in result
+        assert "Halcyon" in result
+        assert "2 msgs sent" in result
+        assert "1 offers made" in result
+
+    def test_flags_repetitive_messaging(self):
+        log = [
+            {"day": 3, "counterparty": "Halcyon", "type": "message_sent"},
+            {"day": 4, "counterparty": "Halcyon", "type": "message_sent"},
+            {"day": 5, "counterparty": "Halcyon", "type": "message_sent"},
+        ]
+        result = build_repetition_awareness(log, current_day=6)
+        assert "NOTE:" in result
+        assert "without successful transaction" in result
+        assert "Halcyon" in result
+
+    def test_no_flag_when_offer_accepted(self):
+        log = [
+            {"day": 4, "counterparty": "Halcyon", "type": "message_sent"},
+            {"day": 5, "counterparty": "Halcyon", "type": "message_sent"},
+            {"day": 5, "counterparty": "Halcyon", "type": "offer_accepted"},
+        ]
+        result = build_repetition_awareness(log, current_day=6)
+        assert "NOTE:" not in result
+
+    def test_does_not_include_current_day(self):
+        log = [
+            {"day": 6, "counterparty": "Halcyon", "type": "message_sent"},
+        ]
+        result = build_repetition_awareness(log, current_day=6)
+        assert result == ""
+
+    def test_multiple_counterparties(self):
+        log = [
+            {"day": 4, "counterparty": "Halcyon", "type": "message_sent"},
+            {"day": 4, "counterparty": "Crestline", "type": "message_sent"},
+            {"day": 5, "counterparty": "Halcyon", "type": "message_sent"},
+        ]
+        result = build_repetition_awareness(log, current_day=6)
+        assert "Halcyon" in result
+        assert "Crestline" in result
+
+    def test_no_em_dashes(self):
+        log = [
+            {"day": 4, "counterparty": "Halcyon", "type": "message_sent"},
+            {"day": 5, "counterparty": "Halcyon", "type": "message_sent"},
+        ]
+        result = build_repetition_awareness(log, current_day=6)
+        assert "\u2014" not in result
+        assert "\u2013" not in result
 
 
 class TestHelpers:
