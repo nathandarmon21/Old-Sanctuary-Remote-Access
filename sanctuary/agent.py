@@ -257,6 +257,7 @@ class Agent:
         inactivity_days: int = 0,
         prev_outcomes: list[str] | None = None,
         protocol_context: str = "",
+        inbox: list[dict[str, Any]] | None = None,
     ) -> tuple[TacticalActions, ModelResponse]:
         """
         Fire the tactical-tier LLM call for this agent.
@@ -341,6 +342,24 @@ class Agent:
                     daily_penalty_per_unit=_bdqp,
                 ))
 
+        # Previous turn outcomes (feedback on what succeeded/failed)
+        outcomes = prev_outcomes or []
+        if outcomes:
+            formatted = format_prev_outcomes(outcomes)
+            sections.append(f"[YOUR PREVIOUS TURN OUTCOMES]\n{formatted}")
+
+        # Messages received (from previous day)
+        received = inbox or []
+        if received:
+            from sanctuary.prompts.common import format_messages_received
+            sections.append(format_messages_received(received))
+
+        # Pending offer details
+        if pending_offers_for_me:
+            sections.append(format_pending_offers_for_buyer(pending_offers_for_me))
+        if my_pending_offers:
+            sections.append(format_pending_offers_for_seller(my_pending_offers))
+
         # Repetition awareness
         rep_awareness = build_repetition_awareness(self.interaction_log, day)
         if rep_awareness:
@@ -351,9 +370,16 @@ class Agent:
         self.history.append({"role": "user", "content": user_content})
         self.tactical_history.append({"role": "user", "content": user_content})
 
+        # Pass a windowed history to the provider to stay within the
+        # model's context limit.  Keep only the last 20 entries (~10
+        # turns) which covers roughly 5 days of context.  The full
+        # history is preserved in self.history for logging.
+        max_history_entries = 20
+        windowed = self.history[-max_history_entries:]
+
         response = self._tactical_provider.complete(
             system_prompt=system_prompt,
-            history=self.history,
+            history=windowed,
             max_tokens=self._tactical_max_tokens,
         )
 

@@ -188,6 +188,9 @@ class SimulationEngine:
         self._daily_snapshots: list[dict[str, Any]] = []
         self._daily_events: dict[int, list[dict[str, Any]]] = {}
         self._transactions_today: set[str] = set()  # agents who transacted today
+        self._prev_day_messages: dict[str, list[dict[str, str]]] = {
+            n: [] for n in self.agents
+        }  # messages received on the previous day, per agent
 
         # Counters
         self.total_strategic_calls = 0
@@ -358,7 +361,10 @@ class SimulationEngine:
                 break
             self._run_sub_round(day, sub_round, router, eligible)
 
-        # 11. Log messages
+        # 11. Log messages and save for next-day delivery
+        next_day_inbox: dict[str, list[dict[str, str]]] = {
+            n: [] for n in self.agents
+        }
         for msg in router.all_messages():
             self.run_dir.events.write_event(
                 "message_sent", day=day,
@@ -367,6 +373,17 @@ class SimulationEngine:
                 public=msg.is_public,
                 body=msg.content,
             )
+            # Deliver to recipient (or all agents for public messages)
+            for name in self.agents:
+                if msg.is_public or msg.recipient == name:
+                    if msg.sender != name:  # don't echo your own messages
+                        tag = "[public]" if msg.is_public else "[private]"
+                        next_day_inbox[name].append({
+                            "from": msg.sender,
+                            "body": msg.content,
+                            "public": msg.is_public,
+                        })
+        self._prev_day_messages = next_day_inbox
 
         # 12. Inactivity
         self.inactivity.advance_day()
@@ -499,6 +516,7 @@ class SimulationEngine:
                 "my_pending": self.market.offers_from_seller(name) if agent.is_seller else [],
                 "prev_outcomes": list(self._prev_outcomes.get(name, [])),
                 "protocol_context": self.protocol.get_agent_context(name, self.agents, day),
+                "inbox": list(self._prev_day_messages.get(name, [])),
             }
 
         def _call(pair: tuple[str, Agent]) -> tuple[str, Any]:
@@ -514,6 +532,7 @@ class SimulationEngine:
                         inactivity_days=pre[name]["inactivity_days"],
                         prev_outcomes=pre[name]["prev_outcomes"],
                         protocol_context=pre[name]["protocol_context"],
+                        inbox=pre[name]["inbox"],
                     )
                 actions, response = _retry_llm_call(_do, name)
                 return name, ("ok", actions, response)
