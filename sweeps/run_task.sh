@@ -56,7 +56,7 @@ OUTPUT_DIR="runs/${SWEEP_NAME}/run_${PROTOCOL}_seed${SEED}"
 echo "Output: ${OUTPUT_DIR}"
 echo "Starting simulation..."
 
-python -m sanctuary.run \
+python3 -m sanctuary.run \
     --config "${CONFIG_PATH}" \
     --seed "${SEED}" \
     --output "${OUTPUT_DIR}" \
