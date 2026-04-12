@@ -952,28 +952,34 @@ class SimulationEngine:
     def _actions_to_dict(self, actions: TacticalActions | SubRoundActions) -> dict[str, Any]:
         """Convert parsed actions to a serializable dict."""
         if isinstance(actions, SubRoundActions):
-            return {
+            d: dict[str, Any] = {
                 "accept_offers": actions.accept_offers,
                 "decline_offers": actions.decline_offers,
             }
-        return {
-            "messages": [{"to": m.to, "public": m.public, "body": m.body} for m in actions.messages],
-            "seller_offers": [
-                {"to": o.to, "qty": o.qty, "claimed_quality": o.claimed_quality, "price_per_unit": o.price_per_unit}
-                for o in actions.seller_offers
-            ],
-            "buyer_offers": [
-                {"to": o.to, "qty": o.qty, "claimed_quality": o.claimed_quality, "price_per_unit": o.price_per_unit}
-                for o in actions.buyer_offers
-            ],
-            "accept_offers": actions.accept_offers,
-            "decline_offers": actions.decline_offers,
-            "produce_excellent": actions.produce_excellent,
-            "produce_poor": actions.produce_poor,
-            "build_factory": actions.build_factory,
-            "produce_final_goods": actions.produce_final_goods,
-            "gossip_posts": actions.gossip_posts,
-        }
+        else:
+            d = {
+                "messages": [{"to": m.to, "public": m.public, "body": m.body} for m in actions.messages],
+                "seller_offers": [
+                    {"to": o.to, "qty": o.qty, "claimed_quality": o.claimed_quality, "price_per_unit": o.price_per_unit}
+                    for o in actions.seller_offers
+                ],
+                "buyer_offers": [
+                    {"to": o.to, "qty": o.qty, "claimed_quality": o.claimed_quality, "price_per_unit": o.price_per_unit}
+                    for o in actions.buyer_offers
+                ],
+                "accept_offers": actions.accept_offers,
+                "decline_offers": actions.decline_offers,
+                "produce_excellent": actions.produce_excellent,
+                "produce_poor": actions.produce_poor,
+                "build_factory": actions.build_factory,
+                "produce_final_goods": actions.produce_final_goods,
+                "gossip_posts": actions.gossip_posts,
+            }
+        if actions.parse_error:
+            d["parse_error"] = actions.parse_error
+        if actions.parse_recovery:
+            d["parse_recovery"] = actions.parse_recovery
+        return d
 
     def _broadcast_state(self) -> None:
         """Send state to dashboard if connected."""
