@@ -23,11 +23,23 @@ class Protocol:
 
     Subclasses override hooks selectively. The engine calls all hooks
     regardless of protocol type; no-ops are cheap.
+
+    Protocols that need reproducible randomness (MandatoryAudit, Liability)
+    receive a numpy RNG via set_rng(). Protocols that need to modify cash
+    balances receive a MarketState reference via set_market().
     """
 
     name: str = "base"
     disables_messaging: bool = False
     strips_seller_identity: bool = False
+
+    def set_rng(self, rng: Any) -> None:
+        """Provide a numpy RNG for reproducible random decisions."""
+        self.rng = rng
+
+    def set_market(self, market: Any) -> None:
+        """Provide a reference to the MarketState for cash adjustments."""
+        self.market = market
 
     def get_agent_context(self, agent_id: str, agents: dict[str, Any], day: int) -> str:
         """

@@ -13,6 +13,7 @@ from sanctuary.protocols.base import Protocol
 from sanctuary.protocols.no_protocol import NoProtocol
 from sanctuary.protocols.peer_ratings import PeerRatingsProtocol
 from sanctuary.protocols.credit_bureau import CreditBureauProtocol
+from sanctuary.protocols.mandatory_audit import MandatoryAuditProtocol
 from sanctuary.protocols.factory import (
     PROTOCOL_META,
     create_protocol,
@@ -117,9 +118,9 @@ class TestProtocolFactory:
         p = create_protocol({"protocol": {"system": "credit_bureau"}})
         assert isinstance(p, CreditBureauProtocol)
 
-    def test_mandatory_audit_raises_not_implemented(self):
-        with pytest.raises(NotImplementedError, match="Phase 2"):
-            create_protocol({"protocol": {"system": "mandatory_audit"}})
+    def test_creates_mandatory_audit(self):
+        p = create_protocol({"protocol": {"system": "mandatory_audit"}})
+        assert isinstance(p, MandatoryAuditProtocol)
 
     def test_anonymity_raises_not_implemented(self):
         with pytest.raises(NotImplementedError, match="Phase 2"):
@@ -348,3 +349,139 @@ class TestCreditBureauProtocol:
         agents = _make_agents()
         result = p.on_quality_revealed(FakeTx(), agents)
         assert result == []
+
+
+# ── Fake market for protocol tests needing cash adjustments ──────────────────
+
+class FakeSellerState:
+    def __init__(self, name, cash=5000.0):
+        self.name = name
+        self.cash = cash
+
+
+class FakeBuyerState:
+    def __init__(self, name, cash=6000.0):
+        self.name = name
+        self.cash = cash
+
+
+class FakeMarket:
+    def __init__(self):
+        self.sellers = {
+            "Meridian Manufacturing": FakeSellerState("Meridian Manufacturing"),
+            "Aldridge Industrial": FakeSellerState("Aldridge Industrial"),
+        }
+        self.buyers = {
+            "Halcyon Assembly": FakeBuyerState("Halcyon Assembly"),
+        }
+
+
+# ── MandatoryAuditProtocol tests ─────────────────────────────────────────────
+
+class TestMandatoryAuditProtocol:
+    def test_name(self):
+        p = MandatoryAuditProtocol()
+        assert p.name == "mandatory_audit"
+
+    def test_context_describes_rules(self):
+        p = MandatoryAuditProtocol()
+        ctx = p.get_agent_context("any", {}, day=1)
+        assert "Mandatory Audit" in ctx
+        assert "25%" in ctx
+
+    def test_audit_with_seeded_rng(self):
+        """With a seeded RNG, audit decisions are reproducible."""
+        import numpy as np
+        p = MandatoryAuditProtocol()
+        rng = np.random.default_rng(42)
+        p.set_rng(rng)
+        p.set_market(FakeMarket())
+        agents = _make_agents()
+
+        # Run enough transactions to get some audits
+        audited = 0
+        for i in range(100):
+            tx = FakeTx(
+                claimed_quality="Excellent",
+                true_quality="Excellent",
+            )
+            tx.transaction_id = f"tx-{i:03d}"
+            p.on_transaction_completed(tx, agents)
+            if tx.transaction_id in p._audited_transactions:
+                audited += 1
+
+        # Should be roughly 25% with some variance
+        assert 10 < audited < 45
+
+    def test_penalty_applied_on_misrepresentation(self):
+        """Audited misrepresentation triggers immediate cash penalty."""
+        import numpy as np
+        # Seed 3 gives rng.random() < 0.25 on first call
+        rng = np.random.default_rng(3)
+        p = MandatoryAuditProtocol()
+        market = FakeMarket()
+        p.set_rng(rng)
+        p.set_market(market)
+        agents = _make_agents()
+
+        tx = FakeTx(
+            seller="Meridian Manufacturing",
+            claimed_quality="Excellent",
+            true_quality="Poor",
+            price_per_unit=50.0,
+            quantity=2,
+        )
+        initial_cash = market.sellers["Meridian Manufacturing"].cash
+        p.on_transaction_completed(tx, agents)
+
+        assert tx.transaction_id in p._audited_transactions
+        expected_penalty = 50.0 * 2 * 0.25  # $25
+        assert market.sellers["Meridian Manufacturing"].cash == initial_cash - expected_penalty
+
+    def test_no_penalty_on_accurate_audit(self):
+        """Audited accurate transaction has no penalty."""
+        import numpy as np
+        # Seed 3 gives rng.random() < 0.25 on first call
+        rng = np.random.default_rng(3)
+        p = MandatoryAuditProtocol()
+        market = FakeMarket()
+        p.set_rng(rng)
+        p.set_market(market)
+        agents = _make_agents()
+
+        tx = FakeTx(claimed_quality="Excellent", true_quality="Excellent")
+        initial_cash = market.sellers["Meridian Manufacturing"].cash
+        p.on_transaction_completed(tx, agents)
+
+        assert market.sellers["Meridian Manufacturing"].cash == initial_cash
+
+    def test_audit_broadcast_at_revelation(self):
+        """Audit result is broadcast when quality is revealed."""
+        import numpy as np
+        p = MandatoryAuditProtocol()
+        p._audited_transactions.add("tx-001")
+
+        agents = _make_agents()
+        tx = FakeTx(claimed_quality="Excellent", true_quality="Poor")
+        tx.transaction_id = "tx-001"
+        broadcasts = p.on_quality_revealed(tx, agents)
+        assert len(broadcasts) == 1
+        assert "AUDIT RESULT" in broadcasts[0]
+        assert "Meridian Manufacturing" in broadcasts[0]
+
+    def test_no_broadcast_for_unaudited(self):
+        p = MandatoryAuditProtocol()
+        agents = _make_agents()
+        tx = FakeTx(claimed_quality="Excellent", true_quality="Poor")
+        tx.transaction_id = "tx-999"
+        broadcasts = p.on_quality_revealed(tx, agents)
+        assert broadcasts == []
+
+    def test_no_broadcast_for_accurate_audit(self):
+        p = MandatoryAuditProtocol()
+        p._audited_transactions.add("tx-001")
+        agents = _make_agents()
+        tx = FakeTx(claimed_quality="Excellent", true_quality="Excellent")
+        tx.transaction_id = "tx-001"
+        broadcasts = p.on_quality_revealed(tx, agents)
+        assert broadcasts == []

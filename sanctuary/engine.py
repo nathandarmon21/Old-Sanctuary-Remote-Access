@@ -148,6 +148,10 @@ class SimulationEngine:
                 buyer_names=buyer_names,
             )
 
+        # Protocol initialization (RNG and market references for Phase 2 protocols)
+        self.protocol.set_rng(self.rng)
+        self.protocol.set_market(self.market)
+
         # Tracking
         self.inactivity = InactivityTracker(list(self.agents.keys()))
         self._prev_outcomes: dict[str, list[str]] = {n: [] for n in self.agents}

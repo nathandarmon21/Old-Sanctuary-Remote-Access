@@ -13,6 +13,7 @@ from sanctuary.protocols.base import Protocol
 from sanctuary.protocols.no_protocol import NoProtocol
 from sanctuary.protocols.peer_ratings import PeerRatingsProtocol
 from sanctuary.protocols.credit_bureau import CreditBureauProtocol
+from sanctuary.protocols.mandatory_audit import MandatoryAuditProtocol
 
 
 PROTOCOL_META: dict[str, dict[str, str]] = {
@@ -64,6 +65,9 @@ def create_protocol(config: dict[str, Any]) -> Protocol:
 
     if system == "credit_bureau":
         return CreditBureauProtocol()
+
+    if system == "mandatory_audit":
+        return MandatoryAuditProtocol()
 
     if system in _PHASE_2_PROTOCOLS:
         meta = PROTOCOL_META[system]
