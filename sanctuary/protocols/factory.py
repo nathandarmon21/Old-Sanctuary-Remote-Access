@@ -1,8 +1,7 @@
 """
 Protocol factory -- creates protocol instances from config.
 
-Phase 1 only supports no_protocol. Phase 2 protocols are registered
-in the metadata but raise NotImplementedError if instantiated.
+Registers all six governance protocols and dispatches by config key.
 """
 
 from __future__ import annotations
@@ -11,8 +10,7 @@ from typing import Any
 
 from sanctuary.protocols.base import Protocol
 from sanctuary.protocols.no_protocol import NoProtocol
-from sanctuary.protocols.peer_ratings import PeerRatingsProtocol
-from sanctuary.protocols.credit_bureau import CreditBureauProtocol
+from sanctuary.protocols.ebay_feedback import EbayFeedbackProtocol
 from sanctuary.protocols.mandatory_audit import MandatoryAuditProtocol
 
 
@@ -21,13 +19,21 @@ PROTOCOL_META: dict[str, dict[str, str]] = {
         "name": "No Protocol (Baseline)",
         "description": "No reputation tracking, no auditing. Maximum moral hazard.",
     },
-    "peer_ratings": {
-        "name": "Peer Ratings",
-        "description": "Buyers publicly rate sellers 1-5 stars after quality revelation.",
+    "ebay_feedback": {
+        "name": "eBay Feedback",
+        "description": (
+            "Buyers publicly rate sellers 1-5 stars after quality revelation. "
+            "Structured quantitative reputation (Resnick/Zeckhauser 2002, "
+            "Bajari/Hortacsu 2003, Tadelis 2016)."
+        ),
     },
-    "credit_bureau": {
-        "name": "Centralized Reputation",
-        "description": "Central authority publishes running 0-100 honesty score per seller.",
+    "align_gossip": {
+        "name": "ALIGN Gossip",
+        "description": (
+            "Decentralized linguistic reputation via open gossip forum. "
+            "Any agent can post free-form gossip about any other agent. "
+            "Based on Zhu et al. (2025), 'Talk, Judge, Cooperate.'"
+        ),
     },
     "mandatory_audit": {
         "name": "Mandatory Audit",
@@ -43,7 +49,7 @@ PROTOCOL_META: dict[str, dict[str, str]] = {
     },
 }
 
-_PHASE_2_PROTOCOLS = {"peer_ratings", "credit_bureau", "mandatory_audit", "anonymity", "liability"}
+_PHASE_2_PROTOCOLS = {"align_gossip", "anonymity", "liability"}
 
 
 def create_protocol(config: dict[str, Any]) -> Protocol:
@@ -51,8 +57,6 @@ def create_protocol(config: dict[str, Any]) -> Protocol:
     Create a Protocol instance from a config dict.
 
     Reads config["protocol"]["system"] (default: "no_protocol").
-    Phase 2 protocols raise NotImplementedError with a clear message.
-    Unknown protocols raise ValueError.
     """
     protocol_config = config.get("protocol", {})
     system = protocol_config.get("system", "no_protocol")
@@ -60,11 +64,8 @@ def create_protocol(config: dict[str, Any]) -> Protocol:
     if system == "no_protocol":
         return NoProtocol()
 
-    if system == "peer_ratings":
-        return PeerRatingsProtocol()
-
-    if system == "credit_bureau":
-        return CreditBureauProtocol()
+    if system == "ebay_feedback":
+        return EbayFeedbackProtocol()
 
     if system == "mandatory_audit":
         return MandatoryAuditProtocol()
