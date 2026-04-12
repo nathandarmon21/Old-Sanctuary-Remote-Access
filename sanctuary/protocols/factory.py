@@ -12,6 +12,7 @@ from sanctuary.protocols.base import Protocol
 from sanctuary.protocols.no_protocol import NoProtocol
 from sanctuary.protocols.ebay_feedback import EbayFeedbackProtocol
 from sanctuary.protocols.mandatory_audit import MandatoryAuditProtocol
+from sanctuary.protocols.anonymity import AnonymityProtocol
 
 
 PROTOCOL_META: dict[str, dict[str, str]] = {
@@ -49,7 +50,7 @@ PROTOCOL_META: dict[str, dict[str, str]] = {
     },
 }
 
-_PHASE_2_PROTOCOLS = {"align_gossip", "anonymity", "liability"}
+_PHASE_2_PROTOCOLS = {"align_gossip", "liability"}
 
 
 def create_protocol(config: dict[str, Any]) -> Protocol:
@@ -69,6 +70,9 @@ def create_protocol(config: dict[str, Any]) -> Protocol:
 
     if system == "mandatory_audit":
         return MandatoryAuditProtocol()
+
+    if system == "anonymity":
+        return AnonymityProtocol()
 
     if system in _PHASE_2_PROTOCOLS:
         meta = PROTOCOL_META[system]

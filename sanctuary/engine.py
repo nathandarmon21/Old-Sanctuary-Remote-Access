@@ -597,8 +597,13 @@ class SimulationEngine:
         router: MessageRouter, day: int,
     ) -> None:
         """Execute all parsed actions for one agent."""
-        # Messages
+        # Messages (suppressed when protocol disables messaging)
         for msg in actions.messages:
+            if self.protocol.disables_messaging:
+                self._curr_outcomes[name].append(
+                    f"Message to {msg.to}: BLOCKED (messaging disabled by protocol)"
+                )
+                continue
             try:
                 router.send(
                     sender=name, recipient=msg.to,

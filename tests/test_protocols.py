@@ -13,6 +13,7 @@ from sanctuary.protocols.base import Protocol
 from sanctuary.protocols.no_protocol import NoProtocol
 from sanctuary.protocols.ebay_feedback import EbayFeedbackProtocol
 from sanctuary.protocols.mandatory_audit import MandatoryAuditProtocol
+from sanctuary.protocols.anonymity import AnonymityProtocol
 from sanctuary.protocols.factory import (
     PROTOCOL_META,
     create_protocol,
@@ -121,9 +122,9 @@ class TestProtocolFactory:
         with pytest.raises(NotImplementedError, match="Phase 2"):
             create_protocol({"protocol": {"system": "align_gossip"}})
 
-    def test_anonymity_raises_not_implemented(self):
-        with pytest.raises(NotImplementedError, match="Phase 2"):
-            create_protocol({"protocol": {"system": "anonymity"}})
+    def test_creates_anonymity(self):
+        p = create_protocol({"protocol": {"system": "anonymity"}})
+        assert isinstance(p, AnonymityProtocol)
 
     def test_liability_raises_not_implemented(self):
         with pytest.raises(NotImplementedError, match="Phase 2"):
@@ -405,3 +406,51 @@ class TestMandatoryAuditProtocol:
         tx.transaction_id = "tx-001"
         broadcasts = p.on_quality_revealed(tx, agents)
         assert broadcasts == []
+
+
+# ── AnonymityProtocol tests ──────────────────────────────────────────────────
+
+class TestAnonymityProtocol:
+    def test_name(self):
+        p = AnonymityProtocol()
+        assert p.name == "anonymity"
+
+    def test_disables_messaging(self):
+        p = AnonymityProtocol()
+        assert p.disables_messaging is True
+
+    def test_strips_seller_identity(self):
+        p = AnonymityProtocol()
+        assert p.strips_seller_identity is True
+
+    def test_context_mentions_anonymity(self):
+        p = AnonymityProtocol()
+        ctx = p.get_agent_context("any", {}, day=1)
+        assert "Full Anonymity" in ctx
+        assert "hidden" in ctx
+
+    def test_context_mentions_no_messaging(self):
+        p = AnonymityProtocol()
+        ctx = p.get_agent_context("any", {}, day=1)
+        assert "No private messaging" in ctx
+
+    def test_hooks_return_empty(self):
+        p = AnonymityProtocol()
+        assert p.on_transaction_completed(None, {}) == []
+        assert p.on_quality_revealed(None, {}) == []
+        assert p.on_day_end(1, {}) == []
+
+    def test_format_transaction_history_hides_seller(self):
+        p = AnonymityProtocol()
+
+        class FakeTxLocal:
+            seller = "Meridian"
+            claimed_quality = "Excellent"
+            true_quality = "Excellent"
+            quantity = 2
+            price_per_unit = 50.0
+            day = 3
+
+        result = p.format_transaction_history_for_buyer("buyer1", [FakeTxLocal()], {})
+        assert "Meridian" not in result
+        assert "(unknown seller)" in result
