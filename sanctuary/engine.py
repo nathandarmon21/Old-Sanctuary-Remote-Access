@@ -563,6 +563,8 @@ class SimulationEngine:
                     market=self.market,
                 )
                 return name, ("ok", actions, response)
+            except ContextTooLongError:
+                raise  # never swallow context errors
             except Exception as e:
                 return name, ("error", e)
 
@@ -577,12 +579,29 @@ class SimulationEngine:
         for name in sorted(raw):
             result = raw[name]
             if result[0] == "error":
+                self.run_dir.events.write_event(
+                    "provider_error", day=day, agent_id=name,
+                    error=str(result[1]),
+                    tier="sub_round",
+                )
                 continue
 
             actions, response = result[1], result[2]
             self.total_tactical_calls += 1
             self.total_prompt_tokens += response.prompt_tokens
             self.total_completion_tokens += response.completion_tokens
+
+            self.run_dir.events.write_event(
+                "agent_turn", day=day,
+                agent_id=name,
+                tier="sub_round",
+                sub_round=sub_round,
+                reasoning=response.completion,
+                actions=self._actions_to_dict(actions),
+                model=response.model,
+                tokens=response.total_tokens,
+                latency=response.latency_seconds,
+            )
 
             if actions.parse_error:
                 self.parse_failures += 1
