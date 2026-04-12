@@ -15,6 +15,7 @@ from sanctuary.protocols.ebay_feedback import EbayFeedbackProtocol
 from sanctuary.protocols.mandatory_audit import MandatoryAuditProtocol
 from sanctuary.protocols.anonymity import AnonymityProtocol
 from sanctuary.protocols.liability import LiabilityProtocol
+from sanctuary.protocols.align_gossip import AlignGossipProtocol
 from sanctuary.protocols.factory import (
     PROTOCOL_META,
     create_protocol,
@@ -119,9 +120,9 @@ class TestProtocolFactory:
         p = create_protocol({"protocol": {"system": "mandatory_audit"}})
         assert isinstance(p, MandatoryAuditProtocol)
 
-    def test_align_gossip_raises_not_implemented(self):
-        with pytest.raises(NotImplementedError, match="Phase 2"):
-            create_protocol({"protocol": {"system": "align_gossip"}})
+    def test_creates_align_gossip(self):
+        p = create_protocol({"protocol": {"system": "align_gossip"}})
+        assert isinstance(p, AlignGossipProtocol)
 
     def test_creates_anonymity(self):
         p = create_protocol({"protocol": {"system": "anonymity"}})
@@ -559,5 +560,176 @@ class TestLiabilityProtocol:
 
     def test_default_flags(self):
         p = LiabilityProtocol()
+        assert p.disables_messaging is False
+        assert p.strips_seller_identity is False
+
+
+# ── AlignGossipProtocol tests ────────────────────────────────────────────────
+
+def _make_full_agents():
+    """All 8 agents for gossip tests."""
+    return {
+        "Meridian Manufacturing": FakeAgent("Meridian Manufacturing", "seller"),
+        "Aldridge Industrial": FakeAgent("Aldridge Industrial", "seller"),
+        "Crestline Components": FakeAgent("Crestline Components", "seller"),
+        "Vector Works": FakeAgent("Vector Works", "seller"),
+        "Halcyon Assembly": FakeAgent("Halcyon Assembly", "buyer"),
+        "Pinnacle Goods": FakeAgent("Pinnacle Goods", "buyer"),
+        "Coastal Fabrication": FakeAgent("Coastal Fabrication", "buyer"),
+        "Northgate Systems": FakeAgent("Northgate Systems", "buyer"),
+    }
+
+
+class TestAlignGossipProtocol:
+    def test_name(self):
+        p = AlignGossipProtocol()
+        assert p.name == "align_gossip"
+
+    def test_empty_forum_initially(self):
+        p = AlignGossipProtocol()
+        ctx = p.get_agent_context("any", _make_full_agents(), day=1)
+        assert "no gossip yet" in ctx
+
+    def test_buyer_posts_gossip_visible_to_others(self):
+        """A buyer posts gossip and another agent's context includes it."""
+        p = AlignGossipProtocol()
+        agents = _make_full_agents()
+        post = {"about": "Meridian Manufacturing", "tone": "NEGATIVE", "message": "Sold me fake goods"}
+        p.receive_gossip("Halcyon Assembly", post, day=6)
+
+        ctx = p.get_agent_context("Pinnacle Goods", agents, day=7)
+        assert "Halcyon Assembly" in ctx
+        assert "Meridian Manufacturing" in ctx
+        assert "NEGATIVE" in ctx
+        assert "Sold me fake goods" in ctx
+
+    def test_seller_posts_about_another_seller(self):
+        p = AlignGossipProtocol()
+        agents = _make_full_agents()
+        post = {"about": "Aldridge Industrial", "tone": "NEGATIVE", "message": "They undercut everyone"}
+        result = p.receive_gossip("Meridian Manufacturing", post, day=3)
+        assert result is not None
+        assert result.author == "Meridian Manufacturing"
+        assert result.about == "Aldridge Industrial"
+
+    def test_seller_posts_about_buyer(self):
+        p = AlignGossipProtocol()
+        post = {"about": "Halcyon Assembly", "tone": "NEUTRAL", "message": "Slow to pay"}
+        result = p.receive_gossip("Meridian Manufacturing", post, day=5)
+        assert result is not None
+        assert result.about == "Halcyon Assembly"
+
+    def test_multiple_gossip_in_single_turn(self):
+        """An agent posts multiple gossip entries."""
+        p = AlignGossipProtocol()
+        posts = [
+            {"about": "Meridian Manufacturing", "tone": "NEGATIVE", "message": "Bad quality"},
+            {"about": "Aldridge Industrial", "tone": "POSITIVE", "message": "Great service"},
+        ]
+        for post in posts:
+            p.receive_gossip("Halcyon Assembly", post, day=6)
+        assert len(p._gossip_board) == 2
+
+    def test_self_gossip_for_reputation_defense(self):
+        """An agent posts gossip about themselves (reputation defense)."""
+        p = AlignGossipProtocol()
+        post = {"about": "Meridian Manufacturing", "tone": "POSITIVE",
+                "message": "Our quality record speaks for itself"}
+        result = p.receive_gossip("Meridian Manufacturing", post, day=10)
+        assert result is not None
+        assert result.author == "Meridian Manufacturing"
+        assert result.about == "Meridian Manufacturing"
+
+    def test_context_window_truncates_old_posts(self):
+        """Only the last 30 posts appear in context."""
+        p = AlignGossipProtocol()
+        for i in range(40):
+            p.receive_gossip("Agent", {"about": f"Target-{i}", "tone": "NEUTRAL",
+                                       "message": f"Post {i}"}, day=i)
+        ctx = p.get_agent_context("any", {}, day=50)
+        assert "Target-0" not in ctx  # first 10 posts should be truncated
+        assert "Target-39" in ctx  # last post should be present
+        assert "40 total posts" in ctx
+        assert "showing last 30" in ctx
+
+    def test_gossip_persists_across_days(self):
+        """Posts from earlier days are still visible on later days."""
+        p = AlignGossipProtocol()
+        p.receive_gossip("Halcyon Assembly",
+                         {"about": "Meridian Manufacturing", "tone": "NEGATIVE",
+                          "message": "Day 3 post"}, day=3)
+        ctx = p.get_agent_context("any", {}, day=20)
+        assert "Day 3 post" in ctx
+        assert "[Day 3]" in ctx
+
+    def test_forum_is_shared(self):
+        """All agents see the same posts."""
+        p = AlignGossipProtocol()
+        agents = _make_full_agents()
+        p.receive_gossip("Halcyon Assembly",
+                         {"about": "Meridian Manufacturing", "tone": "NEGATIVE",
+                          "message": "Shared post"}, day=5)
+
+        for agent_name in agents:
+            ctx = p.get_agent_context(agent_name, agents, day=6)
+            assert "Shared post" in ctx
+
+    def test_post_gossip_optional(self):
+        """Protocol works fine when no gossip is posted."""
+        p = AlignGossipProtocol()
+        agents = _make_full_agents()
+        # Just get context without posting anything
+        ctx = p.get_agent_context("any", agents, day=1)
+        assert "ALIGN Gossip Forum" in ctx
+        assert p.on_transaction_completed(None, {}) == []
+        assert p.on_quality_revealed(None, {}) == []
+        assert p.on_day_end(1, {}) == []
+
+    def test_tone_validation_positive(self):
+        p = AlignGossipProtocol()
+        result = p.receive_gossip("A", {"about": "B", "tone": "POSITIVE", "message": "Good"}, day=1)
+        assert result.tone == "POSITIVE"
+
+    def test_tone_validation_negative(self):
+        p = AlignGossipProtocol()
+        result = p.receive_gossip("A", {"about": "B", "tone": "NEGATIVE", "message": "Bad"}, day=1)
+        assert result.tone == "NEGATIVE"
+
+    def test_tone_validation_neutral(self):
+        p = AlignGossipProtocol()
+        result = p.receive_gossip("A", {"about": "B", "tone": "NEUTRAL", "message": "OK"}, day=1)
+        assert result.tone == "NEUTRAL"
+
+    def test_invalid_tone_defaults_to_neutral(self):
+        p = AlignGossipProtocol()
+        result = p.receive_gossip("A", {"about": "B", "tone": "ANGRY", "message": "Grr"}, day=1)
+        assert result.tone == "NEUTRAL"
+
+    def test_missing_tone_defaults_to_neutral(self):
+        p = AlignGossipProtocol()
+        result = p.receive_gossip("A", {"about": "B", "message": "No tone"}, day=1)
+        assert result.tone == "NEUTRAL"
+
+    def test_malformed_post_missing_about(self):
+        p = AlignGossipProtocol()
+        result = p.receive_gossip("A", {"tone": "NEGATIVE", "message": "No target"}, day=1)
+        assert result is None
+
+    def test_malformed_post_missing_message(self):
+        p = AlignGossipProtocol()
+        result = p.receive_gossip("A", {"about": "B", "tone": "NEGATIVE"}, day=1)
+        assert result is None
+
+    def test_context_includes_instructions(self):
+        p = AlignGossipProtocol()
+        ctx = p.get_agent_context("any", {}, day=1)
+        assert "post_gossip" in ctx
+        assert "POSITIVE" in ctx
+        assert "NEUTRAL" in ctx
+        assert "NEGATIVE" in ctx
+        assert "optional" in ctx.lower()
+
+    def test_default_flags(self):
+        p = AlignGossipProtocol()
         assert p.disables_messaging is False
         assert p.strips_seller_identity is False

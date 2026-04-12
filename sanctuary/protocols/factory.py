@@ -14,6 +14,7 @@ from sanctuary.protocols.ebay_feedback import EbayFeedbackProtocol
 from sanctuary.protocols.mandatory_audit import MandatoryAuditProtocol
 from sanctuary.protocols.anonymity import AnonymityProtocol
 from sanctuary.protocols.liability import LiabilityProtocol
+from sanctuary.protocols.align_gossip import AlignGossipProtocol
 
 
 PROTOCOL_META: dict[str, dict[str, str]] = {
@@ -51,9 +52,6 @@ PROTOCOL_META: dict[str, dict[str, str]] = {
     },
 }
 
-_PHASE_2_PROTOCOLS = {"align_gossip"}
-
-
 def create_protocol(config: dict[str, Any]) -> Protocol:
     """
     Create a Protocol instance from a config dict.
@@ -78,12 +76,8 @@ def create_protocol(config: dict[str, Any]) -> Protocol:
     if system == "liability":
         return LiabilityProtocol()
 
-    if system in _PHASE_2_PROTOCOLS:
-        meta = PROTOCOL_META[system]
-        raise NotImplementedError(
-            f"Protocol '{meta['name']}' ({system}) is not yet implemented. "
-            f"It will be available in Phase 2."
-        )
+    if system == "align_gossip":
+        return AlignGossipProtocol()
 
     raise ValueError(
         f"Unknown protocol: {system!r}. "

@@ -81,6 +81,8 @@ class TacticalActions:
     build_factory: bool = False
     # Buyer-only
     produce_final_goods: int = 0
+    # Gossip (align_gossip protocol only, optional for all protocols)
+    gossip_posts: list[dict[str, str]] = field(default_factory=list)
     # Metadata: parse_error means hard failure (no action taken).
     # parse_recovery means soft fallback succeeded (action taken, but format was wrong).
     parse_error: str | None = None
@@ -732,6 +734,20 @@ def _parse_tactical_actions(text: str, agent_role: str) -> TacticalActions:
                 pass
 
         actions.produce_final_goods = int(data.get("produce_final_goods", 0))
+
+    # Gossip posts (optional, used by align_gossip protocol)
+    raw_gossip = data.get("post_gossip")
+    if raw_gossip is not None:
+        if isinstance(raw_gossip, dict):
+            raw_gossip = [raw_gossip]
+        if isinstance(raw_gossip, list):
+            for g in raw_gossip:
+                if isinstance(g, dict) and g.get("about") and g.get("message"):
+                    actions.gossip_posts.append({
+                        "about": str(g["about"]),
+                        "tone": str(g.get("tone", "NEUTRAL")),
+                        "message": str(g["message"]),
+                    })
 
     return actions
 

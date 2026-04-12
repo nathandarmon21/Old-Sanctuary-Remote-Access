@@ -720,6 +720,17 @@ class SimulationEngine:
                 except Exception as e:
                     self._curr_outcomes[name].append(f"Final goods production: FAILED ({e})")
 
+        # Gossip posts (routed to protocol if it supports gossip)
+        if actions.gossip_posts and hasattr(self.protocol, "receive_gossip"):
+            for post in actions.gossip_posts:
+                result = self.protocol.receive_gossip(name, post, day)
+                if result is not None:
+                    self.run_dir.events.write_event(
+                        "protocol_hook", day=day, hook="gossip_posted",
+                        author=name, about=result.about,
+                        tone=result.tone, message=result.message,
+                    )
+
     def _execute_sub_round_actions(self, name: str, actions: SubRoundActions, day: int) -> None:
         """Execute sub-round actions (accept/decline only)."""
         for offer_id in actions.accept_offers:
@@ -892,6 +903,7 @@ class SimulationEngine:
             "produce_poor": actions.produce_poor,
             "build_factory": actions.build_factory,
             "produce_final_goods": actions.produce_final_goods,
+            "gossip_posts": actions.gossip_posts,
         }
 
     def _broadcast_state(self) -> None:
