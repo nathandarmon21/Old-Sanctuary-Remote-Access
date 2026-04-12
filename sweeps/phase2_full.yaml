@@ -1,0 +1,10 @@
+# Phase 2 full sweep -- 20 seeds for statistical power
+# 6 protocols x 1 model pair x 20 seeds = 120 tasks
+# Run after pilot variance measurement confirms sample size.
+
+sweep_name: phase2_full
+protocols: [no_protocol, ebay_feedback, align_gossip, mandatory_audit, anonymity, liability]
+model_pairs:
+  - {tactical: "ollama/qwen2.5:14b", strategic: "ollama/qwen2.5:32b"}
+seeds: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+base_config: configs/cluster_60day.yaml

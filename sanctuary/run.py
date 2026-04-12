@@ -57,6 +57,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Resume from an existing run directory's latest checkpoint",
     )
+    parser.add_argument(
+        "--protocol",
+        type=str,
+        default=None,
+        help="Override the config file's protocol (e.g. ebay_feedback, align_gossip)",
+    )
     return parser.parse_args(argv)
 
 
@@ -74,6 +80,10 @@ def main(argv: list[str] | None = None) -> None:
         runs_root = Path(__file__).parent.parent / "runs"
         runs_root.mkdir(exist_ok=True)
         run_dir = runs_root / run_id
+
+    # Override protocol from CLI if specified
+    if args.protocol:
+        config_dict["protocol"] = {"system": args.protocol}
 
     agent_names = (
         [s.name for s in config.agents.sellers]
