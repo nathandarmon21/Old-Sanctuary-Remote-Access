@@ -14,6 +14,7 @@ from sanctuary.protocols.no_protocol import NoProtocol
 from sanctuary.protocols.ebay_feedback import EbayFeedbackProtocol
 from sanctuary.protocols.mandatory_audit import MandatoryAuditProtocol
 from sanctuary.protocols.anonymity import AnonymityProtocol
+from sanctuary.protocols.liability import LiabilityProtocol
 from sanctuary.protocols.factory import (
     PROTOCOL_META,
     create_protocol,
@@ -126,9 +127,9 @@ class TestProtocolFactory:
         p = create_protocol({"protocol": {"system": "anonymity"}})
         assert isinstance(p, AnonymityProtocol)
 
-    def test_liability_raises_not_implemented(self):
-        with pytest.raises(NotImplementedError, match="Phase 2"):
-            create_protocol({"protocol": {"system": "liability"}})
+    def test_creates_liability(self):
+        p = create_protocol({"protocol": {"system": "liability"}})
+        assert isinstance(p, LiabilityProtocol)
 
 
 class TestListProtocols:
@@ -454,3 +455,109 @@ class TestAnonymityProtocol:
         result = p.format_transaction_history_for_buyer("buyer1", [FakeTxLocal()], {})
         assert "Meridian" not in result
         assert "(unknown seller)" in result
+
+
+# ── LiabilityProtocol tests ──────────────────────────────────────────────────
+
+class TestLiabilityProtocol:
+    def test_name(self):
+        p = LiabilityProtocol()
+        assert p.name == "liability"
+
+    def test_context_describes_rules(self):
+        p = LiabilityProtocol()
+        ctx = p.get_agent_context("any", {}, day=1)
+        assert "Liability" in ctx
+        assert "50%" in ctx
+        assert "2x" in ctx
+
+    def test_no_unwind_on_accurate_transaction(self):
+        import numpy as np
+        p = LiabilityProtocol()
+        p.set_rng(np.random.default_rng(3))
+        p.set_market(FakeMarket())
+        agents = _make_agents()
+        tx = FakeTx(claimed_quality="Excellent", true_quality="Excellent")
+        broadcasts = p.on_quality_revealed(tx, agents)
+        assert broadcasts == []
+
+    def test_unwind_cash_flows(self):
+        """On unwind: buyer +1x, seller -2x."""
+        import numpy as np
+        # Find a seed where rng.random() < 0.50 (unwind happens)
+        rng = np.random.default_rng(3)  # first call gives ~0.086
+        p = LiabilityProtocol()
+        market = FakeMarket()
+        p.set_rng(rng)
+        p.set_market(market)
+        agents = _make_agents()
+
+        seller_initial = market.sellers["Meridian Manufacturing"].cash
+        buyer_initial = market.buyers["Halcyon Assembly"].cash
+
+        tx = FakeTx(
+            seller="Meridian Manufacturing",
+            buyer="Halcyon Assembly",
+            claimed_quality="Excellent",
+            true_quality="Poor",
+            price_per_unit=50.0,
+            quantity=2,
+        )
+        broadcasts = p.on_quality_revealed(tx, agents)
+
+        total_price = 50.0 * 2  # $100
+        assert len(broadcasts) == 1
+        assert "LIABILITY UNWIND" in broadcasts[0]
+        assert market.sellers["Meridian Manufacturing"].cash == seller_initial - 2 * total_price
+        assert market.buyers["Halcyon Assembly"].cash == buyer_initial + total_price
+
+    def test_no_unwind_when_rng_high(self):
+        """When RNG roll >= 0.50, no unwind occurs."""
+        import numpy as np
+        # Seed 0 gives ~0.637 on first call (no unwind)
+        rng = np.random.default_rng(0)
+        p = LiabilityProtocol()
+        market = FakeMarket()
+        p.set_rng(rng)
+        p.set_market(market)
+        agents = _make_agents()
+
+        seller_initial = market.sellers["Meridian Manufacturing"].cash
+        buyer_initial = market.buyers["Halcyon Assembly"].cash
+
+        tx = FakeTx(
+            claimed_quality="Excellent",
+            true_quality="Poor",
+            price_per_unit=50.0,
+            quantity=2,
+        )
+        broadcasts = p.on_quality_revealed(tx, agents)
+        assert broadcasts == []
+        assert market.sellers["Meridian Manufacturing"].cash == seller_initial
+        assert market.buyers["Halcyon Assembly"].cash == buyer_initial
+
+    def test_broadcast_format(self):
+        import numpy as np
+        rng = np.random.default_rng(3)
+        p = LiabilityProtocol()
+        p.set_rng(rng)
+        p.set_market(FakeMarket())
+        agents = _make_agents()
+
+        tx = FakeTx(
+            claimed_quality="Excellent",
+            true_quality="Poor",
+            price_per_unit=50.0,
+            quantity=2,
+        )
+        broadcasts = p.on_quality_revealed(tx, agents)
+        assert len(broadcasts) == 1
+        assert "Meridian Manufacturing" in broadcasts[0]
+        assert "Halcyon Assembly" in broadcasts[0]
+        assert "$100.00" in broadcasts[0]
+        assert "$200.00" in broadcasts[0]
+
+    def test_default_flags(self):
+        p = LiabilityProtocol()
+        assert p.disables_messaging is False
+        assert p.strips_seller_identity is False
