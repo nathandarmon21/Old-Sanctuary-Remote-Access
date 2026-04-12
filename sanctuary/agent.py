@@ -714,15 +714,21 @@ def _parse_tactical_actions(text: str, agent_role: str) -> TacticalActions:
             except (KeyError, TypeError, ValueError):
                 pass
 
-        # Production
+        # Production -- accept both flat keys (prompt template format)
+        # and nested {"produce": {"excellent": N}} for robustness
         produce = data.get("produce", {})
-        actions.produce_excellent = int(produce.get("excellent", 0))
-        actions.produce_poor = int(produce.get("poor", 0))
+        if isinstance(produce, dict) and produce:
+            actions.produce_excellent = int(produce.get("excellent", 0))
+            actions.produce_poor = int(produce.get("poor", 0))
+        else:
+            actions.produce_excellent = int(data.get("produce_excellent", 0))
+            actions.produce_poor = int(data.get("produce_poor", 0))
         actions.build_factory = bool(data.get("build_factory", False))
 
     else:  # buyer
-        # Counter-offers to sellers
-        for o in data.get("offers", []):
+        # Counter-offers to sellers -- accept both "buyer_offers" (prompt
+        # template key) and "offers" for robustness
+        for o in data.get("buyer_offers", data.get("offers", [])):
             try:
                 actions.buyer_offers.append(ParsedBuyerOffer(
                     to=str(o["to"]),
