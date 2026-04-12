@@ -578,7 +578,21 @@ class SimulationEngine:
                 self.parse_recoveries += 1
 
             self._execute_actions(name, self.agents[name], actions, router, day)
-            self.inactivity.mark_active(name)
+            # Only mark active if the agent actually attempted something
+            has_activity = (
+                actions.messages
+                or actions.seller_offers
+                or actions.buyer_offers
+                or actions.accept_offers
+                or actions.decline_offers
+                or actions.produce_excellent > 0
+                or actions.produce_poor > 0
+                or actions.build_factory
+                or actions.produce_final_goods > 0
+                or actions.gossip_posts
+            )
+            if has_activity:
+                self.inactivity.mark_active(name)
 
     def _run_sub_round(
         self, day: int, sub_round: int, router: MessageRouter, eligible: list[str],
