@@ -11,6 +11,7 @@ hook (Mode 2).
 
 from __future__ import annotations
 
+import logging
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Callable
@@ -39,6 +40,34 @@ from sanctuary.protocols.factory import create_protocol
 from sanctuary.providers.base import ContextTooLongError, ModelProvider
 from sanctuary.revelation import RevelationScheduler
 from sanctuary.run_directory import RunDirectory
+
+
+log = logging.getLogger(__name__)
+
+_RETRY_DELAYS = (2.0, 4.0, 8.0)  # seconds between retry attempts
+
+
+def _retry_llm_call(fn: Callable[[], Any], agent_name: str) -> Any:
+    """Call *fn* with up to 3 retries on transient provider errors.
+
+    ContextTooLongError is never retried (deterministic failure).
+    """
+    last_exc: Exception | None = None
+    for attempt in range(1 + len(_RETRY_DELAYS)):
+        try:
+            return fn()
+        except ContextTooLongError:
+            raise
+        except Exception as e:
+            last_exc = e
+            if attempt < len(_RETRY_DELAYS):
+                delay = _RETRY_DELAYS[attempt]
+                log.warning(
+                    "Provider error for %s (attempt %d/%d), retrying in %.0fs: %s",
+                    agent_name, attempt + 1, 1 + len(_RETRY_DELAYS), delay, e,
+                )
+                time.sleep(delay)
+    raise last_exc  # type: ignore[misc]
 
 
 def _make_provider(model_cfg: Any, seed: int | None = None) -> ModelProvider:
@@ -386,13 +415,15 @@ class SimulationEngine:
         def _call(pair: tuple[str, Agent]) -> tuple[str, tuple[str, ...]]:
             name, agent = pair
             try:
-                record, response = agent.strategic_call(
-                    day=day, week=week, market=self.market,
-                    market_summary=market_summary,
-                    transaction_summary=transaction_summary,
-                    events_since_last_review=events_since_review,
-                    protocol_context=protocol_contexts[name],
-                )
+                def _do() -> tuple:
+                    return agent.strategic_call(
+                        day=day, week=week, market=self.market,
+                        market_summary=market_summary,
+                        transaction_summary=transaction_summary,
+                        events_since_last_review=events_since_review,
+                        protocol_context=protocol_contexts[name],
+                    )
+                record, response = _retry_llm_call(_do, name)
                 return name, ("ok", record, response)
             except ContextTooLongError as e:
                 raise RuntimeError(f"Context too long for {name}: {e}") from e
@@ -473,16 +504,18 @@ class SimulationEngine:
         def _call(pair: tuple[str, Agent]) -> tuple[str, Any]:
             name, agent = pair
             try:
-                actions, response = agent.tactical_call(
-                    day=day,
-                    market=self.market,
-                    router=router,
-                    pending_offers_for_me=pre[name]["pending_for_me"],
-                    my_pending_offers=pre[name]["my_pending"],
-                    inactivity_days=pre[name]["inactivity_days"],
-                    prev_outcomes=pre[name]["prev_outcomes"],
-                    protocol_context=pre[name]["protocol_context"],
-                )
+                def _do() -> tuple:
+                    return agent.tactical_call(
+                        day=day,
+                        market=self.market,
+                        router=router,
+                        pending_offers_for_me=pre[name]["pending_for_me"],
+                        my_pending_offers=pre[name]["my_pending"],
+                        inactivity_days=pre[name]["inactivity_days"],
+                        prev_outcomes=pre[name]["prev_outcomes"],
+                        protocol_context=pre[name]["protocol_context"],
+                    )
+                actions, response = _retry_llm_call(_do, name)
                 return name, ("ok", actions, response)
             except ContextTooLongError as e:
                 raise RuntimeError(f"Context too long for {name}: {e}") from e
@@ -557,11 +590,14 @@ class SimulationEngine:
             name, agent = pair
             try:
                 pending = self.market.offers_for_buyer(name)
-                actions, response = agent.sub_round_call(
-                    day=day, sub_round=sub_round,
-                    pending_offers_for_me=pending,
-                    market=self.market,
-                )
+
+                def _do() -> tuple:
+                    return agent.sub_round_call(
+                        day=day, sub_round=sub_round,
+                        pending_offers_for_me=pending,
+                        market=self.market,
+                    )
+                actions, response = _retry_llm_call(_do, name)
                 return name, ("ok", actions, response)
             except ContextTooLongError:
                 raise  # never swallow context errors
