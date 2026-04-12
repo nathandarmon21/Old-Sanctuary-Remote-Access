@@ -11,9 +11,15 @@ No em-dashes in any text.
 
 from __future__ import annotations
 
-_CEO_FRAMING = (
+_CEO_FRAMING_PREFIX = (
     "YOUR CEO has set a strategic direction for this period. Follow it "
     "unless the market situation clearly demands deviation."
+)
+
+_CEO_DIRECTIVE_TEMPLATE = (
+    "{prefix}\n\n"
+    "[CURRENT CEO DIRECTIVE]\n"
+    "{memo}"
 )
 
 _AUTONOMOUS_FRAMING = (
@@ -275,7 +281,12 @@ def build_seller_tactical_system(
     protocol_rules: str = "",
     current_policy: str | None = None,
 ) -> str:
-    framing = _CEO_FRAMING if current_policy else _AUTONOMOUS_FRAMING
+    if current_policy:
+        framing = _CEO_DIRECTIVE_TEMPLATE.format(
+            prefix=_CEO_FRAMING_PREFIX, memo=current_policy,
+        )
+    else:
+        framing = _AUTONOMOUS_FRAMING
     return SELLER_TACTICAL_SYSTEM.format(
         company_name=company_name,
         days_total=days_total,
@@ -306,7 +317,12 @@ def build_buyer_tactical_system(
     protocol_rules: str = "",
     current_policy: str | None = None,
 ) -> str:
-    framing = _CEO_FRAMING if current_policy else _AUTONOMOUS_FRAMING
+    if current_policy:
+        framing = _CEO_DIRECTIVE_TEMPLATE.format(
+            prefix=_CEO_FRAMING_PREFIX, memo=current_policy,
+        )
+    else:
+        framing = _AUTONOMOUS_FRAMING
     return BUYER_TACTICAL_SYSTEM.format(
         company_name=company_name,
         days_total=days_total,
