@@ -141,10 +141,15 @@ sanctuary/              Core simulation package
     strategic.py        Weekly CEO review prompts
     common.py           Shared formatters
     sub_round.py        Accept/decline only prompts
-  protocols/            Market governance regimes
+  protocols/            Market governance regimes (6 protocols)
     base.py             Protocol base class with lifecycle hooks
     factory.py          Protocol registry and dispatch
     no_protocol.py      Baseline (no reputation, no auditing)
+    ebay_feedback.py    Structured 1-5 star ratings
+    align_gossip.py     Open gossip forum (ALIGN framework)
+    mandatory_audit.py  Random 25% transaction audit
+    anonymity.py        Hidden buyer identities
+    liability.py        Probabilistic unwind of misrepresentations
   metrics/              Post-run metric computation
     misrepresentation.py  Misrepresentation Rate
     allocative_efficiency.py  AE + Price-Cost Margin (Lerner Index)
@@ -168,11 +173,22 @@ sanctuary/              Core simulation package
 configs/                YAML config files
   dev_local.yaml        Qwen 2.5 via Ollama (spec baseline)
   dev_haiku.yaml        Claude Haiku via Anthropic API
+  cluster_60day.yaml    60-day cluster config (Qwen 14B+32B)
   production.yaml       vLLM on GPU cluster (Phase 2+)
   smoke_*.yaml          3-day smoke tests
 
-tests/                  pytest suite (383 tests)
+sweeps/                 SLURM sweep infrastructure
+  submit_sweep.py       Generate task index and submit job array
+  run_task.sh           Per-task SLURM script
+  phase2_pilot.yaml     5-seed pilot (30 tasks)
+  phase2_full.yaml      20-seed full sweep (120 tasks)
+
+metrics/                Cross-run statistical aggregation
+  aggregate.py          Means, CIs, t-tests, Cohen's d, plots
+
+tests/                  pytest suite (490+ tests)
 runs/                   Simulation output directories (gitignored)
+analysis/               Statistical analysis output (gitignored)
 docs/                   Specification document
 ```
 
@@ -203,3 +219,92 @@ The events log is the source of truth. Metrics can be recomputed from it without
 Two runs with the same `--seed` produce identical transaction logs
 (excluding wall-clock timestamps). Parallelism is applied to LLM calls only;
 all market state mutations happen in deterministic alphabetical order.
+
+## Running a Phase 2 Sweep
+
+Phase 2 compares six governance protocols across 60-day simulations using
+Qwen 14B (tactical) + 32B (strategic) on the FASRC Cannon cluster.
+
+### Protocols
+
+| Key | Name | Mechanism |
+|-----|------|-----------|
+| `no_protocol` | No Protocol (Baseline) | No reputation, no auditing. Maximum moral hazard. |
+| `ebay_feedback` | eBay Feedback | Buyers rate sellers 1-5 stars after quality revelation. |
+| `align_gossip` | ALIGN Gossip | Open forum where any agent can post free-form gossip. |
+| `mandatory_audit` | Mandatory Audit | 25% of transactions randomly audited pre-delivery. |
+| `anonymity` | Full Anonymity | Buyer identities hidden, no private messaging. |
+| `liability` | Liability | 50% chance misrepresentations get unwound with penalty. |
+
+### 1. Select a protocol on your laptop
+
+Any protocol can be tested locally via the dashboard or batch mode:
+
+```bash
+# Live dashboard with a specific protocol
+python -m sanctuary.dev --config configs/dev_local.yaml --port 8090
+
+# Batch with protocol override
+python -m sanctuary.run --config configs/dev_local.yaml --seed 42 --protocol ebay_feedback
+```
+
+### 2. Cluster setup
+
+SSH into Cannon and prepare the environment:
+
+```bash
+ssh ndarmon@login.rc.fas.harvard.edu
+cd sanctuary
+pip install -e .
+ollama pull qwen2.5:14b && ollama pull qwen2.5:32b
+```
+
+### 3. Submit a pilot sweep
+
+The pilot sweep runs 5 seeds per protocol (30 tasks total) to measure
+variance before committing to the full 120-task sweep:
+
+```bash
+# Preview without submitting
+python sweeps/submit_sweep.py sweeps/phase2_pilot.yaml --dry-run
+
+# Submit
+python sweeps/submit_sweep.py sweeps/phase2_pilot.yaml
+```
+
+Each task requests 1 GPU, 48G RAM, 4 CPUs, 4-hour walltime. Email
+notifications go to ndarmon@g.harvard.edu on completion or failure.
+
+### 4. Submit the full sweep
+
+After reviewing pilot variance, submit the full 20-seed sweep:
+
+```bash
+python sweeps/submit_sweep.py sweeps/phase2_full.yaml
+```
+
+This creates 120 SLURM array tasks (6 protocols x 20 seeds). Results
+land in `runs/phase2_full/run_<protocol>_seed<n>/`.
+
+### 5. Aggregate results
+
+After all runs complete, aggregate metrics and generate statistical analysis:
+
+```bash
+python metrics/aggregate.py --sweep-name phase2_full
+```
+
+This produces:
+- `analysis/phase2_full/statistical_summary.csv` with per-protocol means,
+  standard deviations, 95% confidence intervals, pairwise t-tests, and
+  Cohen's d effect sizes
+- `analysis/phase2_full/plots/` with matplotlib comparison charts
+
+### 6. Replay individual runs
+
+Copy interesting runs to your laptop and replay through the dashboard:
+
+```bash
+rsync -avz ndarmon@login.rc.fas.harvard.edu:sanctuary/runs/phase2_full/run_align_gossip_seed1/ runs/run_gossip_s1/
+python -m sanctuary.replay --run runs/run_gossip_s1/ --port 8090
+```
