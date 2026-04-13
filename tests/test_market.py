@@ -527,8 +527,9 @@ class TestBuyerProduction:
         market = self._setup_buyer_with_widgets(claimed="Excellent", true="Excellent")
         initial_cash = market.buyers["Halcyon Assembly"].cash
         fg_price = market.fg_prices["Excellent"]
+        from sanctuary.economics import BUYER_CONVERSION_COST
         market.execute_buyer_production("Halcyon Assembly", quantity=2, current_day=2)
-        expected = initial_cash + fg_price * 2
+        expected = initial_cash + (fg_price - BUYER_CONVERSION_COST) * 2
         assert market.buyers["Halcyon Assembly"].cash == pytest.approx(expected)
 
     def test_buyer_production_consumes_widgets(self):
@@ -589,7 +590,8 @@ class TestRetroactiveAdjustment:
         # Produce 2 final goods using claimed-Excellent widgets
         market.execute_buyer_production("Halcyon Assembly", quantity=2, current_day=2)
         fg_excellent_price = market.fg_prices["Excellent"]
-        expected_cash = buyer_cash_after_purchase + fg_excellent_price * 2
+        from sanctuary.economics import BUYER_CONVERSION_COST
+        expected_cash = buyer_cash_after_purchase + (fg_excellent_price - BUYER_CONVERSION_COST) * 2
         assert market.buyers["Halcyon Assembly"].cash == pytest.approx(expected_cash)
 
     def test_revelation_applies_downward_adjustment(self):

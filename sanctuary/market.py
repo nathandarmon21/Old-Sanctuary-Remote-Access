@@ -27,6 +27,7 @@ from typing import Any, Literal
 
 from sanctuary.economics import (
     BANKRUPTCY_THRESHOLD,
+    BUYER_CONVERSION_COST,
     BUYER_MAX_DAILY_PRODUCTION,
     BUYER_TERMINAL_QUOTA_PENALTY,
     BUYER_WIDGET_QUOTA,
@@ -223,9 +224,7 @@ class MarketState:
             return realized - (total_inv * avg_cost)
         if agent_name in self.buyers:
             b = self.buyers[agent_name]
-            realized = b.cash - b.starting_cash
-            remaining = max(0, BUYER_WIDGET_QUOTA - b.widgets_acquired)
-            return realized - (remaining * BUYER_TERMINAL_QUOTA_PENALTY)
+            return b.cash - b.starting_cash
         return 0.0
 
     # ── Inventory visibility ─────────────────────────────────────────────────
@@ -553,7 +552,8 @@ class MarketState:
             # Use true quality if already revealed; otherwise use claimed quality.
             assumed_quality = lot.true_quality if lot.true_quality is not None else lot.claimed_quality
             unit_price = self.fg_prices[assumed_quality]
-            batch_revenue = unit_price * consume
+            # Revenue = goods price minus conversion cost per unit
+            batch_revenue = (unit_price - BUYER_CONVERSION_COST) * consume
             total_revenue += batch_revenue
 
             # Record this batch for retroactive adjustment.
@@ -764,7 +764,6 @@ class MarketState:
                 "cash": round(b.cash, 4),
                 "widget_inventory": total_widgets,
                 "widgets_acquired": b.widgets_acquired,
-                "quota_remaining": max(0, BUYER_WIDGET_QUOTA - b.widgets_acquired),
                 "bankrupt": b.bankrupt,
                 "starting_cash": b.starting_cash,
                 "net_profit_realized": round(self.net_profit_realized(name), 4),
