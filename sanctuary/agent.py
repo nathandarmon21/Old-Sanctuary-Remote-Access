@@ -407,24 +407,37 @@ class Agent:
             else "No strategic policy yet."
         )
 
+        offers_text = format_pending_offers_for_buyer(pending_offers_for_me)
+        offer_ids = [o.offer_id for o in pending_offers_for_me]
+
         prompt = SUB_ROUND_PROMPT.format(
             company_name=self.name,
             sub_round=sub_round,
             day=day,
-            pending_offers=format_pending_offers_for_buyer(pending_offers_for_me),
+            pending_offers=offers_text,
             policy_summary=policy_summary,
         )
 
+        # Include offer details AND IDs in the user message so they
+        # are salient even when conversation history is long.
         user_content = (
             f"Day {day} sub-round {sub_round} -- "
-            f"please respond to the pending offers."
+            f"respond to these pending offers.\n\n"
+            f"{offers_text}\n\n"
+            f"VALID OFFER IDS: {', '.join(offer_ids)}\n"
+            f"Use ONLY these IDs. Do NOT reuse IDs from previous turns."
         )
         self.history.append({"role": "user", "content": user_content})
         self.tactical_history.append({"role": "user", "content": user_content})
 
+        # Window history for sub-rounds too -- stale offer IDs in old
+        # turns cause the LLM to hallucinate/replay expired UUIDs.
+        max_history_entries = 10  # shorter window for sub-rounds
+        windowed = self.history[-max_history_entries:]
+
         response = self._tactical_provider.complete(
             system_prompt=prompt,
-            history=self.history,
+            history=windowed,
             max_tokens=600,
         )
 
