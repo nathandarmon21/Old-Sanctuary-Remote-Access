@@ -723,9 +723,20 @@ class SimulationEngine:
             # Offers (after production, so new inventory is available)
             for offer in actions.seller_offers:
                 try:
+                    # Clamp quantity to available inventory of the quality
+                    # being sent, so over-sized LLM requests degrade
+                    # gracefully instead of failing outright.
+                    seller_state = self.market.sellers.get(name)
+                    available = seller_state.inventory.get(offer.quality_to_send, 0) if seller_state else 0
+                    qty = min(offer.qty, available) if available > 0 else offer.qty
+                    if qty <= 0:
+                        self._curr_outcomes[name].append(
+                            f"Offer to {offer.to}: SKIPPED (no {offer.quality_to_send} inventory)"
+                        )
+                        continue
                     pending = self.market.place_offer(
                         seller=name, buyer=offer.to,
-                        quantity=offer.qty,
+                        quantity=qty,
                         claimed_quality=offer.claimed_quality,
                         quality_to_send=offer.quality_to_send,
                         price_per_unit=offer.price_per_unit,
@@ -734,14 +745,14 @@ class SimulationEngine:
                     evt = self.run_dir.events.write_event(
                         "transaction_proposed", day=day,
                         offer_id=pending.offer_id, seller=name,
-                        buyer=offer.to, quantity=offer.qty,
+                        buyer=offer.to, quantity=qty,
                         claimed_quality=offer.claimed_quality,
                         price_per_unit=offer.price_per_unit,
                     )
                     self._daily_events.setdefault(day, []).append(evt)
                     agent.record_interaction(day, offer.to, "offer_made")
                     self._curr_outcomes[name].append(
-                        f"Offer to {offer.to}: {offer.qty}x {offer.claimed_quality} "
+                        f"Offer to {offer.to}: {qty}x {offer.claimed_quality} "
                         f"at ${offer.price_per_unit:.2f} -- PLACED (ID: {pending.offer_id})"
                     )
                 except Exception as e:
@@ -979,7 +990,8 @@ class SimulationEngine:
             d = {
                 "messages": [{"to": m.to, "public": m.public, "body": m.body} for m in actions.messages],
                 "seller_offers": [
-                    {"to": o.to, "qty": o.qty, "claimed_quality": o.claimed_quality, "price_per_unit": o.price_per_unit}
+                    {"to": o.to, "qty": o.qty, "claimed_quality": o.claimed_quality,
+                     "quality_to_send": o.quality_to_send, "price_per_unit": o.price_per_unit}
                     for o in actions.seller_offers
                 ],
                 "buyer_offers": [
