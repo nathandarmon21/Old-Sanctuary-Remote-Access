@@ -316,38 +316,20 @@ class Agent:
             buyer_st = market.buyers.get(self.name)
             if buyer_st:
                 from sanctuary.economics import (
-                    BUYER_WIDGET_QUOTA as _bwq_np,
-                    BUYER_TERMINAL_QUOTA_PENALTY as _btqp_np,
+                    PREMIUM_GOODS_PRICE as _pgp_uc,
+                    STANDARD_GOODS_PRICE as _sgp_uc,
+                    BUYER_CONVERSION_COST as _bcc_uc,
                 )
-                remaining = max(0, _bwq_np - buyer_st.widgets_acquired)
+                widget_inv = sum(lot.quantity_remaining for lot in buyer_st.widget_lots)
                 sections.append(
                     f"NET PROFIT:\n"
                     f"  Realized (cash - starting): ${realized:.2f}\n"
-                    f"  Projected (if simulation ended today, "
-                    f"unfulfilled quota = ${_btqp_np:.0f}/unit penalty): "
-                    f"${projected:.2f}"
+                    f"  Projected (net profit if simulation ended now): ${projected:.2f}\n"
+                    f"  Widgets in inventory (available for conversion): {widget_inv}\n"
+                    f"  Conversion economics:\n"
+                    f"    Excellent -> Premium Goods: ${_pgp_uc:.2f} - purchase_price - ${_bcc_uc:.2f}\n"
+                    f"    Poor -> Standard Goods: ${_sgp_uc:.2f} - purchase_price - ${_bcc_uc:.2f}"
                 )
-
-        # Buyer quota urgency header (at the top)
-        if self.is_buyer:
-            from sanctuary.economics import (
-                BUYER_DAILY_QUOTA_PENALTY as _bdqp,
-                BUYER_TERMINAL_QUOTA_PENALTY as _btqp,
-                BUYER_WIDGET_QUOTA as _bwq,
-            )
-            from sanctuary.prompts.tactical import build_buyer_quota_urgency_header
-            buyer_state = market.buyers.get(self.name)
-            if buyer_state:
-                quota_remaining = max(0, _bwq - buyer_state.widgets_acquired)
-                days_remaining = max(0, self.days_total - day)
-                sections.append(build_buyer_quota_urgency_header(
-                    days_remaining=days_remaining,
-                    days_total=self.days_total,
-                    quota_remaining=quota_remaining,
-                    original_quota=_bwq,
-                    terminal_penalty_per_unit=_btqp,
-                    daily_penalty_per_unit=_bdqp,
-                ))
 
         # Previous turn outcomes (feedback on what succeeded/failed)
         outcomes = prev_outcomes or []
@@ -505,16 +487,23 @@ class Agent:
                 protocol_rules=protocol_context,
             )
         else:
+            from sanctuary.economics import (
+                BUYER_CONVERSION_COST as _bcc,
+                BUYER_DAILY_PRODUCTION_CAPACITY as _bdpc,
+                PREMIUM_GOODS_PRICE as _pgp,
+                STANDARD_GOODS_PRICE as _sgp,
+            )
             return build_buyer_strategic_system(
                 company_name=self.name,
                 days_total=self.days_total,
                 day=day,
-                widget_quota=BUYER_WIDGET_QUOTA,
-                daily_penalty=BUYER_DAILY_QUOTA_PENALTY,
-                terminal_penalty=BUYER_TERMINAL_QUOTA_PENALTY,
                 fmv_excellent=FMV["Excellent"],
                 fmv_poor=FMV["Poor"],
                 revelation_days=REVELATION_LAG_DAYS,
+                premium_price=_pgp,
+                standard_price=_sgp,
+                conversion_cost=_bcc,
+                daily_prod_cap=_bdpc,
                 seller_names=self.seller_names,
                 buyer_names=self.buyer_names,
                 protocol_rules=protocol_context,
@@ -532,14 +521,14 @@ class Agent:
         protocol_context: str = "",
     ) -> str:
         from sanctuary.economics import (
-            BUYER_DAILY_QUOTA_PENALTY,
-            BUYER_MAX_DAILY_PRODUCTION,
-            BUYER_TERMINAL_QUOTA_PENALTY,
-            BUYER_WIDGET_QUOTA,
+            BUYER_CONVERSION_COST,
+            BUYER_DAILY_PRODUCTION_CAPACITY,
             FACTORY_BUILD_COST,
             FACTORY_BUILD_DAYS,
-            FMV,
+            PREMIUM_GOODS_PRICE,
             REVELATION_LAG_DAYS,
+            STANDARD_GOODS_PRICE,
+            production_cost as _pc,
         )
         from sanctuary.prompts.tactical import (
             build_buyer_tactical_system,
@@ -556,12 +545,19 @@ class Agent:
         policy_memo = self.current_policy.raw_memo if self.current_policy else None
 
         if self.is_seller:
+            # Get seller's current factory count for cost display
+            seller_state = market.sellers.get(self.name)
+            n_factories = seller_state.factories if seller_state else 1
             return build_seller_tactical_system(
                 company_name=self.name,
                 days_total=self.days_total,
                 factory_cost=FACTORY_BUILD_COST,
                 factory_days=FACTORY_BUILD_DAYS,
                 revelation_days=REVELATION_LAG_DAYS,
+                cost_excellent=_pc("Excellent", n_factories),
+                cost_poor=_pc("Poor", n_factories),
+                cost_excellent_next=_pc("Excellent", n_factories + 1),
+                cost_poor_next=_pc("Poor", n_factories + 1),
                 seller_names=self.seller_names,
                 buyer_names=self.buyer_names,
                 pending_offer_ids=offer_ids,
@@ -572,13 +568,11 @@ class Agent:
             return build_buyer_tactical_system(
                 company_name=self.name,
                 days_total=self.days_total,
-                widget_quota=BUYER_WIDGET_QUOTA,
-                daily_penalty=BUYER_DAILY_QUOTA_PENALTY,
-                terminal_penalty=BUYER_TERMINAL_QUOTA_PENALTY,
                 revelation_days=REVELATION_LAG_DAYS,
-                fmv_excellent=FMV["Excellent"],
-                fmv_poor=FMV["Poor"],
-                daily_prod_cap=BUYER_MAX_DAILY_PRODUCTION,
+                premium_price=PREMIUM_GOODS_PRICE,
+                standard_price=STANDARD_GOODS_PRICE,
+                conversion_cost=BUYER_CONVERSION_COST,
+                daily_prod_cap=BUYER_DAILY_PRODUCTION_CAPACITY,
                 seller_names=self.seller_names,
                 buyer_names=self.buyer_names,
                 pending_offer_ids=offer_ids,

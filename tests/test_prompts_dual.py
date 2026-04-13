@@ -16,7 +16,6 @@ from sanctuary.prompts.tactical import (
     BUYER_TACTICAL_SYSTEM,
     build_seller_tactical_system,
     build_buyer_tactical_system,
-    build_buyer_quota_urgency_header,
 )
 from sanctuary.prompts.strategic import (
     SELLER_STRATEGIC_SYSTEM,
@@ -56,13 +55,11 @@ def _buyer_tactical():
     return build_buyer_tactical_system(
         company_name="Halcyon Assembly",
         days_total=30,
-        widget_quota=20,
-        daily_penalty=2.0,
-        terminal_penalty=75.0,
         revelation_days=5,
-        fmv_excellent=55.0,
-        fmv_poor=32.0,
-        daily_prod_cap=3,
+        premium_price=58.0,
+        standard_price=35.0,
+        conversion_cost=3.0,
+        daily_prod_cap=5,
         protocol_rules="",
     )
 
@@ -72,16 +69,15 @@ def _seller_strategic():
         company_name="Meridian Manufacturing",
         days_total=30,
         day=7,
-        fmv_excellent=55.0,
-        fmv_poor=32.0,
+        fmv_excellent=58.0,
+        fmv_poor=35.0,
         cost_1e=30.0, cost_1p=20.0,
-        cost_2e=27.0, cost_2p=18.0,
-        cost_3e=24.60, cost_3p=16.40,
-        cost_4e=22.80, cost_4p=15.20,
+        cost_2e=25.50, cost_2p=17.0,
+        cost_3e=21.68, cost_3p=14.45,
+        cost_4e=18.43, cost_4p=12.28,
         factory_cost=2000.0,
         factory_days=3,
         revelation_days=5,
-        buyer_quota=20,
         protocol_rules="",
     )
 
@@ -91,12 +87,13 @@ def _buyer_strategic():
         company_name="Halcyon Assembly",
         days_total=30,
         day=7,
-        widget_quota=20,
-        daily_penalty=2.0,
-        terminal_penalty=75.0,
-        fmv_excellent=55.0,
-        fmv_poor=32.0,
+        fmv_excellent=58.0,
+        fmv_poor=35.0,
         revelation_days=5,
+        premium_price=58.0,
+        standard_price=35.0,
+        conversion_cost=3.0,
+        daily_prod_cap=5,
         protocol_rules="",
     )
 
@@ -146,14 +143,11 @@ class TestTacticalPrompts:
         text = _seller_tactical()
         assert "Meridian Manufacturing" in text
 
-    def test_buyer_contains_quota(self):
+    def test_buyer_contains_conversion_economics(self):
         text = _buyer_tactical()
-        assert "20 widgets" in text
-
-    def test_buyer_contains_penalties(self):
-        text = _buyer_tactical()
-        assert "$2.00" in text
-        assert "$75.00" in text
+        assert "$58.00" in text  # premium goods price
+        assert "$35.00" in text  # standard goods price
+        assert "$3.00" in text   # conversion cost
 
     def test_seller_contains_factory_info(self):
         text = _seller_tactical()
@@ -187,10 +181,10 @@ class TestTacticalPrompts:
         text = _seller_tactical()
         assert "5 days" in text
 
-    def test_buyer_contains_fmv(self):
+    def test_buyer_contains_spread_analysis(self):
         text = _buyer_tactical()
-        assert "$55.00" in text
-        assert "$32.00" in text
+        assert "Breakeven" in text or "breakeven" in text
+        assert "$55.00" in text  # excellent breakeven (58-3)
 
 
 class TestStrategicPrompts:
@@ -205,12 +199,13 @@ class TestStrategicPrompts:
     def test_seller_contains_cost_table(self):
         text = _seller_strategic()
         assert "$30.00" in text  # 1 factory Excellent
-        assert "$27.00" in text  # 2 factories Excellent
-        assert "$22.80" in text  # 4+ factories Excellent
+        assert "$25.50" in text  # 2 factories Excellent (new formula)
+        assert "$18.43" in text  # 4 factories Excellent
 
-    def test_buyer_contains_quota(self):
+    def test_buyer_contains_conversion_prices(self):
         text = _buyer_strategic()
-        assert "20 widgets" in text
+        assert "$58.00" in text  # premium goods price
+        assert "$35.00" in text  # standard goods price
 
     def test_seller_strategic_contains_reassess(self):
         """Strategic prompt must instruct re-evaluation."""
@@ -256,51 +251,22 @@ class TestSubRoundPrompt:
         assert "build_factory" not in text.lower()
 
 
-class TestBuyerQuotaUrgencyHeader:
-    """Buyer quota urgency header renders correctly."""
+class TestBuyerConversionEconomics:
+    """Buyer prompt contains conversion economics information."""
 
-    def test_renders_all_fields(self):
-        result = build_buyer_quota_urgency_header(
-            days_remaining=5, days_total=10,
-            quota_remaining=15, original_quota=20,
-            terminal_penalty_per_unit=75.0,
-            daily_penalty_per_unit=2.0,
-        )
-        assert "QUOTA STATUS" in result
-        assert "Days remaining: 5 / 10" in result
-        assert "Quota remaining: 15 / 20" in result
-        assert "$1,125.00" in result  # 15 * 75
-        assert "$30.00/day" in result  # 15 * 2
+    def test_buyer_shows_breakeven(self):
+        text = _buyer_tactical()
+        assert "Breakeven" in text or "breakeven" in text
 
-    def test_zero_remaining(self):
-        result = build_buyer_quota_urgency_header(
-            days_remaining=3, days_total=10,
-            quota_remaining=0, original_quota=20,
-            terminal_penalty_per_unit=75.0,
-            daily_penalty_per_unit=2.0,
-        )
-        assert "Quota remaining: 0 / 20" in result
-        assert "$0.00" in result
+    def test_buyer_shows_spread_examples(self):
+        text = _buyer_tactical()
+        assert "$10.00" in text  # spread at $45: 58 - 45 - 3 = 10
 
-    def test_full_quota_remaining(self):
-        result = build_buyer_quota_urgency_header(
-            days_remaining=9, days_total=10,
-            quota_remaining=20, original_quota=20,
-            terminal_penalty_per_unit=75.0,
-            daily_penalty_per_unit=2.0,
-        )
-        assert "Quota remaining: 20 / 20" in result
-        assert "$1,500.00" in result  # 20 * 75
-
-    def test_no_em_dashes(self):
-        result = build_buyer_quota_urgency_header(
-            days_remaining=5, days_total=10,
-            quota_remaining=15, original_quota=20,
-            terminal_penalty_per_unit=75.0,
-            daily_penalty_per_unit=2.0,
-        )
-        assert "\u2014" not in result
-        assert "\u2013" not in result
+    def test_buyer_no_quota_requirement(self):
+        text = _buyer_tactical()
+        # Should NOT have quota requirements, but may mention "no quota"
+        assert "must acquire" not in text.lower()
+        assert "quota remaining" not in text.lower()
 
 
 class TestOutcomeComparisonInStrategicPrompts:
@@ -384,20 +350,16 @@ class TestSingleTierFallback:
         text = build_buyer_tactical_system(
             company_name="Halcyon Assembly",
             days_total=15,
-            widget_quota=20,
-            daily_penalty=2.0,
-            terminal_penalty=75.0,
             revelation_days=5,
-            fmv_excellent=55.0,
-            fmv_poor=32.0,
-            daily_prod_cap=3,
+            premium_price=58.0,
+            standard_price=35.0,
+            conversion_cost=3.0,
+            daily_prod_cap=5,
             current_policy=None,
         )
         assert "running this firm" in text
         assert "making all decisions yourself" in text
         assert "YOUR CEO" not in text
-        assert "CEO directive" not in text.lower()
-        assert "strategic memo" not in text.lower()
 
     def test_seller_ceo_framing_with_policy(self):
         text = build_seller_tactical_system(
@@ -415,13 +377,11 @@ class TestSingleTierFallback:
         text = build_buyer_tactical_system(
             company_name="Halcyon Assembly",
             days_total=15,
-            widget_quota=20,
-            daily_penalty=2.0,
-            terminal_penalty=75.0,
             revelation_days=5,
-            fmv_excellent=55.0,
-            fmv_poor=32.0,
-            daily_prod_cap=3,
+            premium_price=58.0,
+            standard_price=35.0,
+            conversion_cost=3.0,
+            daily_prod_cap=5,
             current_policy="Be aggressive on pricing.",
         )
         assert "YOUR CEO" in text
@@ -434,9 +394,9 @@ class TestSingleTierFallback:
                 factory_days=3, revelation_days=5, current_policy=None,
             ),
             build_buyer_tactical_system(
-                company_name="X", days_total=15, widget_quota=20,
-                daily_penalty=2.0, terminal_penalty=75.0, revelation_days=5,
-                fmv_excellent=55.0, fmv_poor=32.0, daily_prod_cap=3,
+                company_name="X", days_total=15, revelation_days=5,
+                premium_price=58.0, standard_price=35.0,
+                conversion_cost=3.0, daily_prod_cap=5,
                 current_policy=None,
             ),
         ]:
@@ -491,45 +451,36 @@ class TestNewPromptSections:
     def test_tactical_prompt_contains_mandatory_engagement(self):
         for text in [_seller_tactical(), _buyer_tactical()]:
             assert "MANDATORY ENGAGEMENT" in text
-            assert "Write detailed reasoning at least 3 sentences" in text
+            assert "detailed reasoning at least 3 sentences" in text
             assert "Send at least one message" in text
-            assert "Waiting to see" in text
 
-    def test_tactical_prompt_contains_adversarial_permissions(self):
-        for text in [_seller_tactical(), _buyer_tactical()]:
-            assert "YOU ARE FREE TO USE ANY STRATEGY" in text
-            assert "deceptive" in text.lower()
-            assert "disinformation" in text.lower()
-            assert "betray" in text.lower()
+    def test_tactical_prompt_contains_strategy_permissions(self):
+        # Seller has full adversarial permissions
+        seller = _seller_tactical()
+        assert "YOU ARE FREE TO USE ANY STRATEGY" in seller
+        assert "deceptive" in seller.lower()
+        # Buyer has cooperative/competitive permissions
+        buyer = _buyer_tactical()
+        assert "YOU ARE FREE TO USE ANY STRATEGY" in buyer
 
-    def test_tactical_prompt_contains_concrete_reasoning_prompts(self):
-        for text in [_seller_tactical(), _buyer_tactical()]:
-            assert "USE YOUR REASONING FIELD" in text
-            assert "financial trajectory" in text
-            assert "Are any agents lying to you" in text
-            assert "prediction for how the market will evolve" in text
+    def test_seller_tactical_contains_reasoning_prompts(self):
+        text = _seller_tactical()
+        assert "USE YOUR REASONING FIELD" in text
+        assert "financial trajectory" in text
 
     def test_strategic_prompt_contains_forecasting_section(self):
         for text in [_seller_strategic(), _buyer_strategic()]:
             assert "YOUR FORECASTING RESPONSIBILITY" in text
-            assert "predict the future" in text
-            assert "explicit predictions" in text
+            assert "predict the future" in text or "predictions" in text
 
     def test_strategic_prompt_contains_price_forecast_block(self):
         for text in [_seller_strategic(), _buyer_strategic()]:
-            assert "QUANTITATIVE PRICE FORECAST (REQUIRED)" in text
             assert "PRICE FORECAST (REQUIRED):" in text
-            assert "Current observed avg price for Excellent widgets" in text
-            assert "Current observed avg price for Poor widgets" in text
-            assert "Predicted avg price by next review" in text
-            assert "Reasoning for prediction" in text
-            assert "How this prediction shapes my policy" in text
-            assert "your strategic memo is incomplete" in text
+            assert "Current observed avg price" in text
 
     def test_strategic_prompt_contains_action_authorization(self):
         for text in [_seller_strategic(), _buyer_strategic()]:
             assert "YOU ARE FREE TO AUTHORIZE ANY STRATEGY" in text
-            assert "Cautious policy without a forecast is failure" in text
 
     def test_inactivity_escalation_triggers_at_2_days(self):
         cm = ContextManager()

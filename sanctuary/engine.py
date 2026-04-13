@@ -22,9 +22,7 @@ from sanctuary.agent import Agent, PolicyRecord, TacticalActions, SubRoundAction
 from sanctuary.config import SimulationConfig, config_to_dict
 from sanctuary.context_manager import ContextManager
 from sanctuary.economics import (
-    BUYER_DAILY_QUOTA_PENALTY,
-    BUYER_MAX_DAILY_PRODUCTION,
-    BUYER_TERMINAL_QUOTA_PENALTY,
+    BUYER_DAILY_PRODUCTION_CAPACITY,
     BUYER_WIDGET_QUOTA,
     FACTORY_BUILD_COST,
     FACTORY_BUILD_DAYS,
@@ -996,7 +994,7 @@ class SimulationEngine:
             if b["bankrupt"]:
                 lines.append(f"  {name}: BANKRUPT")
             else:
-                lines.append(f"  {name}: ${b['cash']:,.2f}, {b['widgets_acquired']}/{BUYER_WIDGET_QUOTA} quota")
+                lines.append(f"  {name}: ${b['cash']:,.2f}, {b.get('widget_inventory', 0)} widgets")
         return "\n".join(lines)
 
     def _build_transaction_summary(self, day: int) -> str:
