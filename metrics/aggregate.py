@@ -40,9 +40,9 @@ except ImportError:
 
 # Metrics to aggregate (dot-separated paths into metrics.json)
 METRIC_PATHS = [
-    ("misrepresentation.overall_rate", "Misrepresentation Rate"),
+    ("misrepresentation.overall", "Misrepresentation Rate"),
     ("allocative_efficiency.ae", "Allocative Efficiency"),
-    ("price_cost_margin.mean_pcm", "Price-Cost Margin"),
+    ("price_cost_margin.average_pcm", "Price-Cost Margin"),
     ("market_integrity.price_parallelism_index", "Price Parallelism Index"),
     ("market_integrity.markup_correlation", "Markup Correlation"),
     ("market_integrity.exploitation_rate", "Exploitation Rate"),
@@ -389,6 +389,186 @@ def main():
                       f"{p['metric']} (p={p['p_value']:.4f}, d={p['cohens_d']:.2f})")
         else:
             print("  None")
+
+    # Generate PDF comparison report
+    if HAS_MATPLOTLIB:
+        pdf_path = analysis_dir / "comparison_report.pdf"
+        generate_comparison_pdf(cell_stats, pairwise, grouped, pdf_path, args.sweep_name)
+        print(f"\nPDF report: {pdf_path}")
+
+
+def generate_comparison_pdf(
+    cell_stats: list[dict],
+    pairwise: list[dict],
+    grouped: dict[str, list[dict]],
+    output_path: Path,
+    sweep_name: str,
+) -> None:
+    """Generate a multi-page PDF comparing protocols with error bars."""
+    from matplotlib.backends.backend_pdf import PdfPages
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    protocols = sorted(grouped.keys())
+    n_per = {p: len(grouped[p]) for p in protocols}
+    colors = ["#3B82F6", "#F59E0B", "#10B981", "#EF4444", "#8B5CF6", "#6B7280"]
+
+    with PdfPages(str(output_path)) as pdf:
+        # ── Page 1: Title + summary table ──
+        fig = plt.figure(figsize=(8.5, 11))
+        fig.text(0.5, 0.92, f"Cross-Run Comparison Report", ha="center",
+                 fontsize=20, fontweight="bold")
+        fig.text(0.5, 0.89, f"Sweep: {sweep_name}  |  "
+                 f"{sum(n_per.values())} runs across {len(protocols)} protocols",
+                 ha="center", fontsize=11, color="#6B7280")
+
+        # Summary table
+        ax = fig.add_axes([0.05, 0.35, 0.9, 0.50])
+        ax.axis("off")
+        header = ["Metric"] + [f"{p}\n(n={n_per[p]})" for p in protocols]
+        if len(protocols) == 2:
+            header.append("p-value")
+            header.append("Cohen's d")
+
+        rows = []
+        for metric_path, metric_label in METRIC_PATHS:
+            row = [metric_label]
+            for p in protocols:
+                stats_row = next(
+                    (r for r in cell_stats
+                     if r["protocol"] == p and r["metric_path"] == metric_path),
+                    None,
+                )
+                if stats_row and stats_row["n"] > 0:
+                    row.append(f"{stats_row['mean']:.4f}\n+/-{stats_row['std']:.4f}")
+                else:
+                    row.append("n/a")
+
+            if len(protocols) == 2:
+                pw = next(
+                    (r for r in pairwise if r["metric_path"] == metric_path),
+                    None,
+                )
+                if pw:
+                    p_val = pw["p_value"]
+                    sig = "*" if p_val < 0.05 else ""
+                    sig += "*" if p_val < 0.01 else ""
+                    sig += "*" if p_val < 0.001 else ""
+                    row.append(f"{p_val:.4f} {sig}")
+                    row.append(f"{pw['cohens_d']:.3f}")
+                else:
+                    row.extend(["n/a", "n/a"])
+            rows.append(row)
+
+        table = ax.table(cellText=rows, colLabels=header, loc="upper center",
+                         cellLoc="center")
+        table.auto_set_font_size(False)
+        table.set_fontsize(8)
+        table.scale(1, 2.2)
+        for j in range(len(header)):
+            table[0, j].set_facecolor("#1F2937")
+            table[0, j].set_text_props(color="white", fontweight="bold", fontsize=7.5)
+        for i in range(1, len(rows) + 1):
+            for j in range(len(header)):
+                table[i, j].set_edgecolor("#E5E7EB")
+                if i % 2 == 0:
+                    table[i, j].set_facecolor("#F9FAFB")
+            # Highlight significant p-values
+            if len(protocols) == 2 and len(header) > len(protocols) + 1:
+                p_cell = table[i, len(protocols) + 1]
+                txt = rows[i - 1][len(protocols) + 1]
+                if "*" in txt:
+                    p_cell.set_facecolor("#FEE2E2")
+
+        fig.text(0.06, 0.30,
+                 "* p < 0.05   ** p < 0.01   *** p < 0.001\n"
+                 "Cohen's d: 0.2 = small, 0.5 = medium, 0.8 = large effect",
+                 fontsize=8, color="#6B7280")
+        pdf.savefig(fig)
+        plt.close(fig)
+
+        # ── Page 2: Bar charts with error bars ──
+        fig, axes = plt.subplots(4, 2, figsize=(8.5, 11))
+        fig.suptitle("Metric Comparison with 95% Confidence Intervals",
+                     fontsize=14, fontweight="bold", y=0.97)
+        axes_flat = axes.flatten()
+
+        for idx, (metric_path, metric_label) in enumerate(METRIC_PATHS):
+            if idx >= len(axes_flat):
+                break
+            ax = axes_flat[idx]
+            means, ci_errs = [], []
+            for p in protocols:
+                row = next(
+                    (r for r in cell_stats
+                     if r["protocol"] == p and r["metric_path"] == metric_path),
+                    None,
+                )
+                if row and row["n"] > 0:
+                    means.append(row["mean"])
+                    ci_errs.append([
+                        row["mean"] - row["ci_95_low"],
+                        row["ci_95_high"] - row["mean"],
+                    ])
+                else:
+                    means.append(0)
+                    ci_errs.append([0, 0])
+
+            x = np.arange(len(protocols))
+            err = np.array(ci_errs).T
+            bars = ax.bar(x, means, yerr=err, capsize=4,
+                          color=[colors[i % len(colors)] for i in range(len(protocols))],
+                          alpha=0.85, zorder=3)
+            ax.set_xticks(x)
+            ax.set_xticklabels(protocols, fontsize=7, rotation=20, ha="right")
+            ax.set_title(metric_label, fontsize=9)
+            ax.grid(axis="y", alpha=0.3, zorder=0)
+            ax.bar_label(bars, fmt="%.3f", fontsize=6.5, padding=2)
+
+        # Hide unused subplot
+        for idx in range(len(METRIC_PATHS), len(axes_flat)):
+            axes_flat[idx].axis("off")
+
+        fig.tight_layout(rect=[0, 0, 1, 0.95])
+        pdf.savefig(fig)
+        plt.close(fig)
+
+        # ── Page 3: Box plots (distribution view) ──
+        fig, axes = plt.subplots(4, 2, figsize=(8.5, 11))
+        fig.suptitle("Metric Distributions Across Seeds",
+                     fontsize=14, fontweight="bold", y=0.97)
+        axes_flat = axes.flatten()
+
+        for idx, (metric_path, metric_label) in enumerate(METRIC_PATHS):
+            if idx >= len(axes_flat):
+                break
+            ax = axes_flat[idx]
+            data_arrays = []
+            for p in protocols:
+                vals = []
+                for m in grouped.get(p, []):
+                    v = _extract_metric(m, metric_path)
+                    if v is not None:
+                        vals.append(v)
+                data_arrays.append(vals)
+
+            bp = ax.boxplot(data_arrays, labels=protocols, patch_artist=True,
+                           widths=0.5)
+            for patch, color in zip(bp["boxes"],
+                                     [colors[i % len(colors)] for i in range(len(protocols))]):
+                patch.set_facecolor(color)
+                patch.set_alpha(0.6)
+            ax.set_title(metric_label, fontsize=9)
+            ax.tick_params(axis="x", labelsize=7, rotation=20)
+            ax.grid(axis="y", alpha=0.3)
+
+        for idx in range(len(METRIC_PATHS), len(axes_flat)):
+            axes_flat[idx].axis("off")
+
+        fig.tight_layout(rect=[0, 0, 1, 0.95])
+        pdf.savefig(fig)
+        plt.close(fig)
+
+    print(f"PDF comparison report: {output_path}")
 
 
 if __name__ == "__main__":

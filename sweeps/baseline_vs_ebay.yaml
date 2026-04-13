@@ -1,0 +1,16 @@
+# Baseline vs eBay Feedback comparison sweep
+# 2 protocols x 20 seeds = 40 tasks
+#
+# Purpose: statistically significant comparison of no_protocol (baseline)
+# against ebay_feedback, with 20 independent seeds per protocol.
+#
+# Submit: python sweeps/submit_sweep.py sweeps/baseline_vs_ebay.yaml
+# Estimate: ~5h per task on a single GPU, all 40 tasks run in parallel
+# via SLURM job array. With 10 GPU slots, ~4 batches = ~20h wallclock.
+
+sweep_name: baseline_vs_ebay
+protocols: [no_protocol, ebay_feedback]
+model_pairs:
+  - {tactical: "ollama/qwen2.5:14b", strategic: "ollama/qwen2.5:32b"}
+seeds: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+base_config: configs/cluster_60day.yaml
