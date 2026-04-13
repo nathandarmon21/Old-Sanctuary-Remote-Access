@@ -1,12 +1,9 @@
 """
-Tests for the quota-penalty buyer model.
+Tests for buyer quota mechanics (legacy, now profit-driven model).
 
-Covers:
-  - daily_quota_penalty and terminal_quota_penalty math
-  - MarketState.apply_buyer_quota_penalties deducts correct amounts
-  - MarketState.apply_terminal_quota_penalties fires at end of run
-  - widgets_acquired increments correctly on accept_offer
-  - Buyer who meets quota pays no penalty
+In the profit-driven redesign, quota penalties are disabled (always $0).
+These tests verify the zero-penalty behavior and that widgets_acquired
+tracking still works (used for reporting even without penalties).
 """
 
 from __future__ import annotations
@@ -14,53 +11,45 @@ from __future__ import annotations
 import pytest
 
 from sanctuary.economics import (
-    BUYER_DAILY_QUOTA_PENALTY,
-    BUYER_TERMINAL_QUOTA_PENALTY,
-    BUYER_WIDGET_QUOTA,
     daily_quota_penalty,
     terminal_quota_penalty,
 )
 from sanctuary.market import BuyerState, SellerState, MarketState
 
 
-# -- economics.py function tests -----------------------------------------------
+# -- economics.py function tests (all zero now) --------------------------------
 
 class TestDailyQuotaPenalty:
-    def test_zero_acquired_pays_full_penalty(self):
-        # 20 unfulfilled x $2 = $40/day
-        assert daily_quota_penalty(0) == pytest.approx(40.0)
+    def test_zero_acquired_no_penalty(self):
+        assert daily_quota_penalty(0) == pytest.approx(0.0)
 
-    def test_quota_met_pays_nothing(self):
+    def test_quota_met_no_penalty(self):
         assert daily_quota_penalty(20) == pytest.approx(0.0)
 
-    def test_quota_exceeded_pays_nothing(self):
+    def test_quota_exceeded_no_penalty(self):
         assert daily_quota_penalty(25) == pytest.approx(0.0)
 
-    def test_ten_widgets(self):
-        # 10 unfulfilled x $2 = $20/day
-        assert daily_quota_penalty(10) == pytest.approx(20.0)
+    def test_partial_no_penalty(self):
+        assert daily_quota_penalty(10) == pytest.approx(0.0)
 
     def test_nineteen_acquired(self):
-        # 1 unfulfilled x $2 = $2/day
-        assert daily_quota_penalty(19) == pytest.approx(2.0)
+        assert daily_quota_penalty(19) == pytest.approx(0.0)
 
 
 class TestTerminalQuotaPenalty:
     def test_zero_acquired(self):
-        # 20 unfulfilled x $75 = $1,500
-        assert terminal_quota_penalty(0) == pytest.approx(1500.0)
+        assert terminal_quota_penalty(0) == pytest.approx(0.0)
 
     def test_quota_met_no_penalty(self):
         assert terminal_quota_penalty(20) == pytest.approx(0.0)
 
     def test_ten_acquired(self):
-        # 10 unfulfilled x $75 = $750
-        assert terminal_quota_penalty(10) == pytest.approx(750.0)
+        assert terminal_quota_penalty(10) == pytest.approx(0.0)
 
     def test_worst_case_math(self):
-        # Total worst case: 30 days x $40/day + $1,500 terminal = $2,700
+        # With penalties disabled, worst case is $0
         total = sum(daily_quota_penalty(0) for _ in range(30)) + terminal_quota_penalty(0)
-        assert total == pytest.approx(2700.0)
+        assert total == pytest.approx(0.0)
 
 
 # -- market.py quota mechanics -------------------------------------------------
@@ -81,23 +70,8 @@ def _simple_market(buyer_acquired: int = 0) -> MarketState:
 
 
 class TestApplyBuyerQuotaPenalties:
-    def test_idle_buyer_charged_daily_penalty(self):
+    def test_idle_buyer_no_penalty(self):
         market = _simple_market(buyer_acquired=0)
-        initial_cash = market.buyers["Halcyon Assembly"].cash
-        penalties = market.apply_buyer_quota_penalties()
-        expected = daily_quota_penalty(0)  # $40/day for 0 of 20 widgets
-        assert penalties["Halcyon Assembly"] == pytest.approx(expected)
-        assert market.buyers["Halcyon Assembly"].cash == pytest.approx(initial_cash - expected)
-
-    def test_partial_quota_charged_proportionally(self):
-        market = _simple_market(buyer_acquired=10)
-        initial_cash = market.buyers["Halcyon Assembly"].cash
-        market.apply_buyer_quota_penalties()
-        expected = daily_quota_penalty(10)  # $20/day
-        assert market.buyers["Halcyon Assembly"].cash == pytest.approx(initial_cash - expected)
-
-    def test_full_quota_no_penalty(self):
-        market = _simple_market(buyer_acquired=20)
         initial_cash = market.buyers["Halcyon Assembly"].cash
         penalties = market.apply_buyer_quota_penalties()
         assert penalties["Halcyon Assembly"] == pytest.approx(0.0)
@@ -112,27 +86,12 @@ class TestApplyBuyerQuotaPenalties:
 
 
 class TestApplyTerminalQuotaPenalties:
-    def test_terminal_penalty_fires_at_zero_acquired(self):
+    def test_terminal_no_penalty(self):
         market = _simple_market(buyer_acquired=0)
-        initial_cash = market.buyers["Halcyon Assembly"].cash
-        penalties = market.apply_terminal_quota_penalties()
-        expected = terminal_quota_penalty(0)  # $1,500
-        assert penalties["Halcyon Assembly"] == pytest.approx(expected)
-        assert market.buyers["Halcyon Assembly"].cash == pytest.approx(initial_cash - expected)
-
-    def test_terminal_no_penalty_when_quota_met(self):
-        market = _simple_market(buyer_acquired=20)
         initial_cash = market.buyers["Halcyon Assembly"].cash
         penalties = market.apply_terminal_quota_penalties()
         assert penalties["Halcyon Assembly"] == pytest.approx(0.0)
         assert market.buyers["Halcyon Assembly"].cash == pytest.approx(initial_cash)
-
-    def test_terminal_partial_penalty(self):
-        market = _simple_market(buyer_acquired=15)
-        initial_cash = market.buyers["Halcyon Assembly"].cash
-        market.apply_terminal_quota_penalties()
-        expected = terminal_quota_penalty(15)  # 5 unfulfilled x $75 = $375
-        assert market.buyers["Halcyon Assembly"].cash == pytest.approx(initial_cash - expected)
 
 
 class TestWidgetsAcquiredTracking:

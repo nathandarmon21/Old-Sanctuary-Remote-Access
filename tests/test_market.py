@@ -539,9 +539,10 @@ class TestBuyerProduction:
         assert remaining == 2
 
     def test_buyer_production_exceeds_cap_rejected(self):
-        market = self._setup_buyer_with_widgets(qty=4)
+        market = self._setup_buyer_with_widgets(qty=8)
         with pytest.raises(MarketValidationError, match="daily cap"):
-            market.execute_buyer_production("Halcyon Assembly", quantity=4, current_day=2)
+            # Daily cap is now 5 (BUYER_DAILY_PRODUCTION_CAPACITY)
+            market.execute_buyer_production("Halcyon Assembly", quantity=6, current_day=2)
 
     def test_buyer_production_exceeds_inventory_rejected(self):
         market = self._setup_buyer_with_widgets(qty=2)
@@ -727,19 +728,21 @@ class TestDailyCosts:
         market = make_simple_market(seller_excellent=2, seller_poor=3)
         initial_cash = market.sellers["Meridian Manufacturing"].cash
         costs = market.apply_holding_costs()
-        # 2% of production cost: 2 * ($30 * 0.02) + 3 * ($20 * 0.02) = 2 * 0.60 + 3 * 0.40 = 2.40
-        expected = 2 * 0.60 + 3 * 0.40
+        # Quadratic: total_inv=5, rate = 0.02 + 0.005*5 = 0.045
+        # Excellent: 30 * 0.045 * 2 = 2.70
+        # Poor: 20 * 0.045 * 3 = 2.70
+        expected = 2.70 + 2.70  # = 5.40
         assert costs["Meridian Manufacturing"] == pytest.approx(expected)
         assert market.sellers["Meridian Manufacturing"].cash == pytest.approx(
             initial_cash - expected
         )
 
-    def test_buyer_quota_penalty_deducted(self):
+    def test_buyer_quota_penalty_is_zero(self):
         market = make_simple_market()
         initial_cash = market.buyers["Halcyon Assembly"].cash
-        # New buyer has 0 widgets_acquired, quota is 20 -> full penalty = 20 x $2 = $40
+        # Quota penalties disabled in profit-driven model
         market.apply_buyer_quota_penalties()
-        assert market.buyers["Halcyon Assembly"].cash == pytest.approx(initial_cash - 40.0)
+        assert market.buyers["Halcyon Assembly"].cash == pytest.approx(initial_cash)
 
     def test_bankrupt_agents_not_charged(self):
         market = make_simple_market()

@@ -5,16 +5,26 @@ All functions here are stateless and deterministic -- no side effects,
 no external dependencies. This makes them straightforward to test and
 to reason about formally.
 
-Production costs use a lookup table indexed by factory count (capped at 4+):
+Production costs use a continuous economies-of-scale formula:
+
+    cost(quality, n) = base_cost(quality) * 0.85^(n-1)
 
     Factories | Excellent | Poor
     ----------+-----------+------
     1         | $30.00    | $20.00
-    2         | $27.00    | $18.00
-    3         | $24.60    | $16.40
-    4+        | $22.80    | $15.20
+    2         | $25.50    | $17.00
+    3         | $21.68    | $14.45
+    4         | $18.43    | $12.28
 
-Holding cost is 2% of production cost per unit per day.
+Holding cost is quadratic in inventory size:
+
+    per_unit_daily = prod_cost * (0.02 + 0.005 * inventory_count)
+
+Buyers convert widgets into final goods at fixed market prices:
+
+    Premium Goods  (from Excellent): $58.00/unit
+    Standard Goods (from Poor):      $35.00/unit
+    Conversion cost:                  $3.00/unit
 """
 
 from __future__ import annotations
@@ -23,28 +33,45 @@ from typing import Literal
 
 Quality = Literal["Excellent", "Poor"]
 
-# -- Production cost lookup table (spec section 1.4) --------------------------
+# -- Production cost base prices -----------------------------------------------
 
-PRODUCTION_COST_TABLE: dict[int, dict[str, float]] = {
-    1: {"Excellent": 30.00, "Poor": 20.00},
-    2: {"Excellent": 27.00, "Poor": 18.00},
-    3: {"Excellent": 24.60, "Poor": 16.40},
-    4: {"Excellent": 22.80, "Poor": 15.20},
+PRODUCTION_COST_BASE: dict[str, float] = {
+    "Excellent": 30.00,
+    "Poor": 20.00,
 }
 
-# -- Fair market values -------------------------------------------------------
+# Scale factor per additional factory (15% reduction per factory)
+PRODUCTION_COST_SCALE: float = 0.85
 
+# Legacy lookup table kept for backward compatibility in tests
+PRODUCTION_COST_TABLE: dict[int, dict[str, float]] = {
+    1: {"Excellent": 30.00, "Poor": 20.00},
+    2: {"Excellent": 25.50, "Poor": 17.00},
+    3: {"Excellent": 21.68, "Poor": 14.45},
+    4: {"Excellent": 18.43, "Poor": 12.28},
+}
+
+# -- Final goods prices (buyer revenue) ---------------------------------------
+
+PREMIUM_GOODS_PRICE: float = 58.00   # revenue per Excellent widget converted
+STANDARD_GOODS_PRICE: float = 35.00  # revenue per Poor widget converted
+BUYER_CONVERSION_COST: float = 3.00  # cost per widget to convert
+
+# Fair market values (used by metrics and protocols)
 FMV: dict[str, float] = {
-    "Excellent": 55.00,
-    "Poor": 32.00,
+    "Excellent": PREMIUM_GOODS_PRICE,
+    "Poor": STANDARD_GOODS_PRICE,
 }
 
 # Alias used by downstream code that previously imported FINAL_GOOD_BASE_PRICES.
 FINAL_GOOD_BASE_PRICES: dict[str, float] = FMV
 
-# -- Holding cost rate --------------------------------------------------------
+# -- Holding cost (quadratic in inventory size) --------------------------------
 
-HOLDING_COST_RATE: float = 0.02  # 2% of production cost per unit per day
+HOLDING_COST_BASE_RATE: float = 0.02   # base 2% of production cost per unit/day
+HOLDING_COST_SCALE_RATE: float = 0.005  # additional rate per unit in inventory
+# Legacy alias
+HOLDING_COST_RATE: float = HOLDING_COST_BASE_RATE
 
 # -- Factory build parameters -------------------------------------------------
 
@@ -57,10 +84,13 @@ BANKRUPTCY_THRESHOLD: float = -5_000.0
 
 # -- Buyer parameters ---------------------------------------------------------
 
-BUYER_MAX_DAILY_PRODUCTION: int = 3
+BUYER_DAILY_PRODUCTION_CAPACITY: int = 5   # widgets converted to final goods/day
+BUYER_MAX_DAILY_PRODUCTION: int = BUYER_DAILY_PRODUCTION_CAPACITY  # alias
+
+# Legacy quota parameters (no longer used in profit-driven model)
 BUYER_WIDGET_QUOTA: int = 20
-BUYER_DAILY_QUOTA_PENALTY: float = 2.0     # $/day per unfulfilled quota unit
-BUYER_TERMINAL_QUOTA_PENALTY: float = 75.0  # $/unit at end of run
+BUYER_DAILY_QUOTA_PENALTY: float = 0.0     # disabled
+BUYER_TERMINAL_QUOTA_PENALTY: float = 0.0  # disabled
 
 # -- Seller starting cash (asymmetric, spec section 1.1) ----------------------
 
@@ -83,28 +113,26 @@ MAX_TRANSACTIONS_PER_AGENT_PER_DAY: int = 1
 
 def production_cost(quality: str, factories: int) -> float:
     """
-    Per-unit production cost with economies of scale.
+    Per-unit production cost with continuous economies of scale.
 
-    Uses a lookup table capped at 4 factories.
+    Formula: base_cost(quality) * 0.85^(factories - 1)
 
     >>> production_cost("Excellent", 1)
     30.0
     >>> production_cost("Poor", 1)
     20.0
-    >>> production_cost("Excellent", 2)
-    27.0
-    >>> production_cost("Excellent", 4)
-    22.8
-    >>> production_cost("Excellent", 4) == production_cost("Excellent", 10)
-    True
+    >>> round(production_cost("Excellent", 2), 2)
+    25.5
+    >>> round(production_cost("Excellent", 4), 2)
+    18.43
     """
     if quality not in ("Excellent", "Poor"):
         raise ValueError(f"Unknown quality level: {quality!r}. Must be 'Excellent' or 'Poor'.")
     if factories < 1:
         raise ValueError(f"factories must be >= 1, got {factories}")
 
-    effective_factories = min(factories, 4)
-    return PRODUCTION_COST_TABLE[effective_factories][quality]
+    base = PRODUCTION_COST_BASE[quality]
+    return round(base * (PRODUCTION_COST_SCALE ** (factories - 1)), 2)
 
 
 def factory_daily_capacity(factories: int) -> int:
@@ -112,27 +140,40 @@ def factory_daily_capacity(factories: int) -> int:
     return factories
 
 
-def holding_cost_per_unit_per_day(quality: str, factories: int = 1) -> float:
+def holding_cost_per_unit_per_day(
+    quality: str, factories: int = 1, inventory_count: int = 1,
+) -> float:
     """
-    Daily holding cost for a single unsold widget.
+    Daily holding cost for a single unsold widget (quadratic in inventory).
 
-    Equals 2% of the production cost at the seller's current factory count.
+    Formula: prod_cost * (0.02 + 0.005 * inventory_count)
+
+    At 1 widget:  2.5% of prod cost
+    At 10 widgets: 7% of prod cost
+    At 50 widgets: 27% of prod cost  (overproduction is punishing)
     """
     if quality not in ("Excellent", "Poor"):
         raise ValueError(f"Unknown quality level: {quality!r}")
-    return round(production_cost(quality, factories) * HOLDING_COST_RATE, 6)
+    cost = production_cost(quality, factories)
+    rate = HOLDING_COST_BASE_RATE + HOLDING_COST_SCALE_RATE * inventory_count
+    return round(cost * rate, 6)
 
 
 def total_holding_cost(inventory: dict[str, int], factories: int = 1) -> float:
     """
     Total daily holding cost for an entire seller inventory.
 
-    inventory maps quality -> widget count.
+    Uses quadratic formula: each widget's cost depends on total inventory
+    size, making overproduction progressively more expensive.
     """
+    total_count = sum(
+        c for q, c in inventory.items() if q in ("Excellent", "Poor") and c > 0
+    )
     total = 0.0
     for q, count in inventory.items():
         if q in ("Excellent", "Poor") and count > 0:
-            total += holding_cost_per_unit_per_day(q, factories) * count
+            unit_cost = holding_cost_per_unit_per_day(q, factories, total_count)
+            total += unit_cost * count
     return round(total, 6)
 
 
@@ -184,32 +225,43 @@ def revenue_adjustment(
 
 def daily_quota_penalty(widgets_acquired: int) -> float:
     """
-    Daily cash penalty for a buyer based on unfulfilled quota.
+    Legacy daily quota penalty. Returns 0.0 in profit-driven model.
 
-    Charged once per day. A buyer who has acquired all 20 widgets pays nothing.
-    A buyer who has acquired 0 pays 20 x $2 = $40/day.
-
-    >>> daily_quota_penalty(20)
-    0.0
     >>> daily_quota_penalty(0)
-    40.0
-    >>> daily_quota_penalty(10)
-    20.0
+    0.0
     """
-    unfulfilled = max(0, BUYER_WIDGET_QUOTA - widgets_acquired)
-    return round(unfulfilled * BUYER_DAILY_QUOTA_PENALTY, 6)
+    return 0.0
 
 
 def terminal_quota_penalty(widgets_acquired: int) -> float:
     """
-    One-time terminal penalty applied at end of day 30 for unfulfilled quota.
+    Legacy terminal quota penalty. Returns 0.0 in profit-driven model.
 
-    >>> terminal_quota_penalty(20)
-    0.0
     >>> terminal_quota_penalty(0)
-    1500.0
-    >>> terminal_quota_penalty(10)
-    750.0
+    0.0
     """
-    unfulfilled = max(0, BUYER_WIDGET_QUOTA - widgets_acquired)
-    return round(unfulfilled * BUYER_TERMINAL_QUOTA_PENALTY, 6)
+    return 0.0
+
+
+def buyer_conversion_profit(
+    widget_quality: str, purchase_price: float,
+) -> float:
+    """
+    Per-unit profit from converting a widget into final goods.
+
+    profit = goods_price - purchase_price - conversion_cost
+
+    >>> buyer_conversion_profit("Excellent", 45.0)
+    10.0
+    >>> buyer_conversion_profit("Poor", 25.0)
+    7.0
+    >>> buyer_conversion_profit("Excellent", 60.0)
+    -5.0
+    """
+    if widget_quality == "Excellent":
+        goods_price = PREMIUM_GOODS_PRICE
+    elif widget_quality == "Poor":
+        goods_price = STANDARD_GOODS_PRICE
+    else:
+        raise ValueError(f"Unknown quality: {widget_quality!r}")
+    return round(goods_price - purchase_price - BUYER_CONVERSION_COST, 6)

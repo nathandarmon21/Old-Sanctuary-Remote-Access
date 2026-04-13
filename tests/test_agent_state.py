@@ -279,11 +279,11 @@ class TestProfitSummary:
         market.sellers["Meridian Manufacturing"].factories = 1
         market.sellers["Meridian Manufacturing"].factory_build_queue = []
         summary = market.summary_for_agent("Meridian Manufacturing", day=1, days_total=30)
-        # production_cost("Excellent", 1) = $30; production_cost("Excellent", 2) = $27 -> save $3.00
-        # break-even = $2000 / $3.00 = 666 units
+        # production_cost("Excellent", 1) = $30; production_cost("Excellent", 2) = $25.50 -> save $4.50
+        # break-even = $2000 / $4.50 = 444 units
         assert "Factory ROI" in summary
-        assert "666" in summary
-        assert "$3.00/Excellent unit" in summary
+        assert "444" in summary
+        assert "$4.50/Excellent unit" in summary
 
     def test_seller_factory_roi_at_floor(self):
         """At 4 factories, ROI line says no further savings."""
@@ -294,14 +294,9 @@ class TestProfitSummary:
         assert "at minimum cost" in summary
 
     def test_buyer_quota_penalty_exposure(self):
-        """Buyer with 7/20 quota on day 9 with 22 days remaining shows correct exposure."""
+        """Quota penalties are zero in profit-driven model."""
         market = _make_market()
-        # BuyerState: widgets_acquired=7, penalties_accrued=138.00
-        # quota_remaining = 20 - 7 = 13; current_daily = 13 * $2 = $26/day
-        # days_remaining = 30 - 9 + 1 = 22
-        # flow_exp = $26 * 22 = $572; terminal = 13 * $75 = $975; total = $1,547
         summary = market.summary_for_agent("Halcyon Assembly", day=9, days_total=30)
+        # Penalties are now $0 since quota system is disabled
         assert "Quota penalty exposure" in summary
-        assert "572.00" in summary   # flow exposure
-        assert "975.00" in summary   # terminal exposure
-        assert "1,547.00" in summary   # total
+        assert "$0.00" in summary
