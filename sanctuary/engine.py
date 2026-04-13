@@ -754,6 +754,14 @@ class SimulationEngine:
                     self._curr_outcomes[name].append(f"Production: FAILED ({e})")
 
             # Offers (after production, so new inventory is available)
+            # Check protocol-based exclusion (e.g. eBay low reputation)
+            if hasattr(self.protocol, "is_excluded") and self.protocol.is_excluded(name, day):
+                for offer in actions.seller_offers:
+                    self._curr_outcomes[name].append(
+                        f"Offer to {offer.to}: BLOCKED (excluded due to low reputation)"
+                    )
+                actions.seller_offers = []
+
             for offer in actions.seller_offers:
                 try:
                     # Clamp quantity to available inventory of the quality
