@@ -443,10 +443,13 @@ class TestProduction:
         # Production cost for Excellent with 1 factory = $30
         assert market.sellers["Meridian Manufacturing"].cash == pytest.approx(initial_cash - 30.0)
 
-    def test_production_exceeds_capacity_rejected(self):
-        market = make_simple_market(seller_factories=1)
-        with pytest.raises(MarketValidationError, match="capacity"):
-            market.execute_production("Meridian Manufacturing", excellent=1, poor=1)  # 2 > 1
+    def test_production_exceeds_capacity_clamped(self):
+        market = make_simple_market(seller_factories=1, seller_excellent=0, seller_poor=0)
+        result = market.execute_production("Meridian Manufacturing", excellent=5, poor=3)
+        # Capacity is 1 with 1 factory; clamps to 1 Excellent, 0 Poor
+        assert result["excellent"] == 1
+        assert result["poor"] == 0
+        assert market.sellers["Meridian Manufacturing"].inventory["Excellent"] == 1
 
     def test_production_with_insufficient_cash_rejected(self):
         market = make_simple_market(seller_cash=5.0)  # only $5

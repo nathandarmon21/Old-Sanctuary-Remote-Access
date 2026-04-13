@@ -430,6 +430,11 @@ class MarketState:
         """
         Execute a seller's daily production decision.
 
+        If the request exceeds factory capacity, production is clamped
+        to capacity (prioritising Excellent, then Poor) rather than
+        rejected outright.  This prevents LLM over-requests from
+        silently zeroing out all production.
+
         Deducts production cost, adds widgets to inventory.
         Returns a summary dict for logging.
         """
@@ -437,11 +442,11 @@ class MarketState:
         capacity = factory_daily_capacity(seller.factories)
         total = excellent + poor
 
+        # Clamp to capacity instead of hard-rejecting
         if total > capacity:
-            raise MarketValidationError(
-                f"{seller_name} wants to produce {total} widgets "
-                f"but has capacity for only {capacity} (factories={seller.factories})"
-            )
+            # Prioritise Excellent, fill remainder with Poor
+            excellent = min(excellent, capacity)
+            poor = min(poor, capacity - excellent)
 
         cost = 0.0
         if excellent > 0:

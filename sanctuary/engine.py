@@ -706,7 +706,21 @@ class SimulationEngine:
                 self._curr_outcomes[name].append(f"Message to {msg.to}: FAILED ({e})")
 
         if agent.is_seller:
-            # Offers
+            # Production FIRST so new widgets are available for offers
+            if actions.produce_excellent > 0 or actions.produce_poor > 0:
+                try:
+                    result = self.market.execute_production(
+                        name, excellent=actions.produce_excellent, poor=actions.produce_poor,
+                    )
+                    self.run_dir.events.write_event("production", day=day, **result)
+                    self._curr_outcomes[name].append(
+                        f"Production: {result['excellent']}x Excellent, "
+                        f"{result['poor']}x Poor -- SUCCESS"
+                    )
+                except Exception as e:
+                    self._curr_outcomes[name].append(f"Production: FAILED ({e})")
+
+            # Offers (after production, so new inventory is available)
             for offer in actions.seller_offers:
                 try:
                     pending = self.market.place_offer(
@@ -732,20 +746,6 @@ class SimulationEngine:
                     )
                 except Exception as e:
                     self._curr_outcomes[name].append(f"Offer to {offer.to}: FAILED ({e})")
-
-            # Production
-            if actions.produce_excellent > 0 or actions.produce_poor > 0:
-                try:
-                    result = self.market.execute_production(
-                        name, excellent=actions.produce_excellent, poor=actions.produce_poor,
-                    )
-                    self.run_dir.events.write_event("production", day=day, **result)
-                    self._curr_outcomes[name].append(
-                        f"Production: {actions.produce_excellent}x Excellent, "
-                        f"{actions.produce_poor}x Poor -- SUCCESS"
-                    )
-                except Exception as e:
-                    self._curr_outcomes[name].append(f"Production: FAILED ({e})")
 
             # Factory build
             if actions.build_factory:
