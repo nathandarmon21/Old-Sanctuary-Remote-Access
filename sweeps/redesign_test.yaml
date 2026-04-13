@@ -1,0 +1,9 @@
+# Redesign test -- quick 30-day validation of economic redesign
+# 2 protocols x 3 seeds = 6 tasks (fast turnaround)
+
+sweep_name: redesign_test
+protocols: [no_protocol, ebay_feedback]
+model_pairs:
+  - {tactical: "ollama/qwen2.5:14b", strategic: "ollama/qwen2.5:32b"}
+seeds: [1, 2, 3]
+base_config: configs/redesign_validation.yaml
