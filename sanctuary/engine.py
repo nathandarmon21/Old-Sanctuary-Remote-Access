@@ -763,7 +763,7 @@ class SimulationEngine:
                     # gracefully instead of failing outright.
                     seller_state = self.market.sellers.get(name)
                     available = seller_state.inventory.get(offer.quality_to_send, 0) if seller_state else 0
-                    qty = min(offer.qty, available) if available > 0 else offer.qty
+                    qty = min(offer.qty, available)
                     if qty <= 0:
                         self._curr_outcomes[name].append(
                             f"Offer to {offer.to}: SKIPPED (no {offer.quality_to_send} inventory)"
