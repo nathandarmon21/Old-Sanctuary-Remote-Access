@@ -20,6 +20,7 @@ from pathlib import Path
 from sanctuary.config import load_config, config_to_dict
 from sanctuary.engine import SimulationEngine
 from sanctuary.metrics.aggregate import compute_all_metrics
+from sanctuary.post_run_report import generate_post_run_report
 from sanctuary.protocols.factory import create_protocol
 from sanctuary.run_directory import RunDirectory
 
@@ -129,6 +130,13 @@ def main(argv: list[str] | None = None) -> None:
                 events_path, total_days=config.run.days, final_state=final_state,
             )
             rd.mark_complete(metrics=metrics)
+
+            # Auto-generate PDF report
+            try:
+                report_path = generate_post_run_report(run_dir)
+                print(f"Report: {report_path}")
+            except Exception as exc:
+                print(f"Warning: report generation failed: {exc}")
 
             wall_seconds = time.time() - wall_start
             print(f"\nSimulation complete in {wall_seconds:.1f}s.")
