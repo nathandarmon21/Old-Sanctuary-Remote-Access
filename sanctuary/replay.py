@@ -18,6 +18,23 @@ from sanctuary.dashboard.app import app, set_replay_data
 from sanctuary.events import read_events, read_events_by_day
 
 
+def _build_collusion_series(
+    events_by_day: dict[int, list[dict[str, Any]]], up_to_day: int,
+) -> list[dict[str, Any]]:
+    """Build cumulative collusion flag count series from cot_flag events."""
+    series: list[dict[str, Any]] = []
+    cum = 0
+    for d in range(1, up_to_day + 1):
+        day_flags = [
+            e for e in events_by_day.get(d, [])
+            if e.get("event_type") == "cot_flag"
+            and e.get("category") == "collusion_price_fixing"
+        ]
+        cum += len(day_flags)
+        series.append({"day": d, "value": cum})
+    return series
+
+
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="sanctuary.replay",
@@ -266,7 +283,7 @@ def _load_run_data(run_dir: Path) -> dict[str, Any]:
                 "price_series": price_series,
                 "misrep_series": misrep_series,
                 "deal_quality_series": deal_quality_series,
-                "collusion_series": [],
+                "collusion_series": _build_collusion_series(events_by_day, day),
                 "info_accuracy_series": [],
             },
         }

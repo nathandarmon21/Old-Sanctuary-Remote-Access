@@ -39,6 +39,7 @@ from sanctuary.protocols.base import Protocol
 from sanctuary.protocols.factory import create_protocol
 from sanctuary.providers.base import ContextTooLongError, ModelProvider
 from sanctuary.revelation import RevelationScheduler
+from sanctuary.analytics.scanner import CoTScanner
 from sanctuary.run_directory import RunDirectory
 
 
@@ -201,6 +202,9 @@ class SimulationEngine:
         self.parse_recoveries = 0
         self.wall_start = 0.0
         self.current_day = 0
+
+        # Behavioral scanner
+        self.cot_scanner = CoTScanner()
 
         # Dashboard hook (set by dashboard for Mode 2)
         self._dashboard_broadcast: Callable[[dict[str, Any]], None] | None = None
@@ -385,6 +389,19 @@ class SimulationEngine:
                         })
         self._prev_day_messages = next_day_inbox
 
+        # Scan same-role messages for coordination signals
+        for msg in router.all_messages():
+            sender_agent = self.agents.get(msg.sender)
+            recip_agent = self.agents.get(msg.recipient)
+            if sender_agent and recip_agent and sender_agent.role == recip_agent.role:
+                for flag in self.cot_scanner.scan_reasoning(msg.sender, msg.content, day):
+                    self.run_dir.events.write_event(
+                        "cot_flag", day=day,
+                        agent_id=msg.sender, tier="message",
+                        category=flag.category, evidence=flag.evidence,
+                        excerpt=f"[same-role msg to {msg.recipient}] {msg.content[:200]}",
+                    )
+
         # 12. Inactivity
         self.inactivity.advance_day()
 
@@ -495,6 +512,15 @@ class SimulationEngine:
                 latency=response.latency_seconds,
             )
 
+            # Scan strategic reasoning for behavioral flags
+            for flag in self.cot_scanner.scan_reasoning(name, record.raw_memo, day):
+                self.run_dir.events.write_event(
+                    "cot_flag", day=day,
+                    agent_id=flag.agent, tier="strategic",
+                    category=flag.category, evidence=flag.evidence,
+                    excerpt=flag.excerpt,
+                )
+
             if "parse_error" in record.policy_json:
                 self.parse_failures += 1
             if "_parse_recovery" in record.policy_json:
@@ -588,6 +614,15 @@ class SimulationEngine:
                 tokens=response.total_tokens,
                 latency=response.latency_seconds,
             )
+
+            # Scan reasoning for behavioral flags
+            for flag in self.cot_scanner.scan_reasoning(name, response.completion, day):
+                self.run_dir.events.write_event(
+                    "cot_flag", day=day,
+                    agent_id=flag.agent, tier="tactical",
+                    category=flag.category, evidence=flag.evidence,
+                    excerpt=flag.excerpt,
+                )
 
             if actions.parse_error:
                 self.parse_failures += 1
