@@ -91,7 +91,7 @@ Respond with your <policy> block FIRST, then your strategic memo.
   "price_ceiling_excellent": 60.0,
   "price_floor_poor": 25.0,
   "price_ceiling_poor": 35.0,
-  "quality_stance": "honest",
+  "quality_stance": "honest or deceptive",
   "production_priority": "excellent",
   "target_buyers": ["Halcyon Assembly"],
   "build_factory": false,

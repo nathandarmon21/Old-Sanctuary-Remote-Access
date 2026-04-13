@@ -19,6 +19,7 @@ from sanctuary.metrics.market_integrity import (
     compute_exploitation_rate,
     compute_markup_correlation,
     compute_price_parallelism,
+    compute_price_trend,
     compute_trust_persistence,
 )
 from sanctuary.metrics.misrepresentation import compute_misrepresentation_rate
@@ -43,6 +44,7 @@ def compute_all_metrics(
     mc = compute_markup_correlation(events)
     er = compute_exploitation_rate(events, total_days=total_days)
     tp = compute_trust_persistence(events)
+    pt = compute_price_trend(events, total_days=total_days)
 
     result: dict[str, Any] = {
         "misrepresentation": misrep,
@@ -53,6 +55,7 @@ def compute_all_metrics(
             "markup_correlation": mc,
             "exploitation_rate": er,
             "trust_persistence": tp,
+            "price_trend": pt,
         },
     }
 

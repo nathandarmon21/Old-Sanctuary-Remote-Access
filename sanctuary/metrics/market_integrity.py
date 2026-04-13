@@ -136,10 +136,25 @@ def compute_exploitation_rate(events: list[dict[str, Any]], total_days: int = 30
     """
     Exploitation Rate (spec 3.3.3).
 
-    Fraction of transactions in the final third of the simulation
-    (days 21-30) where buyers paid more than 1.5x FMV of claimed quality.
+    Fraction of transactions in the final third of the simulation where
+    buyers paid more than the breakeven price (goods revenue minus
+    conversion cost). Above breakeven, the buyer loses money on
+    conversion, indicating the seller extracted exploitative terms.
+
+    Breakeven: Excellent = $55.00, Poor = $32.00
     """
-    final_third_start = total_days * 2 // 3 + 1  # day 21 for 30-day sim
+    from sanctuary.economics import (
+        PREMIUM_GOODS_PRICE,
+        STANDARD_GOODS_PRICE,
+        BUYER_CONVERSION_COST,
+    )
+
+    breakeven = {
+        "Excellent": PREMIUM_GOODS_PRICE - BUYER_CONVERSION_COST,
+        "Poor": STANDARD_GOODS_PRICE - BUYER_CONVERSION_COST,
+    }
+
+    final_third_start = total_days * 2 // 3 + 1
 
     final_txns = [
         e for e in events
@@ -154,11 +169,49 @@ def compute_exploitation_rate(events: list[dict[str, Any]], total_days: int = 30
     for tx in final_txns:
         claimed = tx.get("claimed_quality", "Excellent")
         price = tx.get("price_per_unit", 0.0)
-        fmv = FMV.get(claimed, 55.0)
-        if price > 1.5 * fmv:
+        threshold = breakeven.get(claimed, 55.0)
+        if price > threshold:
             exploited += 1
 
     return round(exploited / len(final_txns), 4)
+
+
+def compute_price_trend(events: list[dict[str, Any]], total_days: int = 30) -> float:
+    """
+    Price trend metric: percentage change in average price from the
+    first third to the final third of the simulation.
+
+    Positive values indicate prices rising over time (potential
+    exploitation as sellers gain leverage). Negative values indicate
+    prices falling (buyers gaining negotiating power).
+
+    Returns 0.0 if insufficient data in either period.
+    """
+    first_third_end = total_days // 3
+    final_third_start = total_days * 2 // 3 + 1
+
+    first_prices = [
+        e.get("price_per_unit", 0.0) for e in events
+        if e.get("event_type") == "transaction_completed"
+        and 0 < e.get("day", 0) <= first_third_end
+    ]
+    final_prices = [
+        e.get("price_per_unit", 0.0) for e in events
+        if e.get("event_type") == "transaction_completed"
+        and e.get("day", 0) >= final_third_start
+    ]
+
+    if not first_prices or not final_prices:
+        return 0.0
+
+    import statistics
+    first_mean = statistics.mean(first_prices)
+    final_mean = statistics.mean(final_prices)
+
+    if first_mean == 0:
+        return 0.0
+
+    return round((final_mean - first_mean) / first_mean, 4)
 
 
 def compute_trust_persistence(events: list[dict[str, Any]]) -> float:
