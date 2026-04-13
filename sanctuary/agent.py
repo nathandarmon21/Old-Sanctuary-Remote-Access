@@ -223,9 +223,16 @@ class Agent:
         self.history.append({"role": "user", "content": user_content})
         self.strategic_history.append({"role": "user", "content": user_content})
 
+        # Window history for strategic calls.  Keep more context than
+        # tactical (strategic runs less often and benefits from seeing
+        # prior memos), but still bounded to avoid context overflow and
+        # the slowdown from processing huge prompts.
+        max_strategic_history = 30
+        windowed = self.history[-max_strategic_history:]
+
         response = self._strategic_provider.complete(
             system_prompt=system_prompt,
-            history=self.history,
+            history=windowed,
             max_tokens=self._strategic_max_tokens,
         )
 
