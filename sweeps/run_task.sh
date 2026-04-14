@@ -3,7 +3,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --mem=48G
 #SBATCH --cpus-per-task=4
-#SBATCH --time=18:00:00
+#SBATCH --time=24:00:00
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=ndarmon@g.harvard.edu
 
@@ -48,8 +48,8 @@ if ! pgrep -x ollama >/dev/null 2>&1; then
 fi
 
 echo "Pulling models (no-op if already present)..."
-ollama pull mistral-nemo:latest
-ollama pull mistral-small:24b
+ollama pull qwen2.5:14b
+ollama pull qwen2.5:72b
 
 # Run simulation
 OUTPUT_DIR="runs/${SWEEP_NAME}/run_${PROTOCOL}_seed${SEED}"
