@@ -389,7 +389,7 @@ class TestMandatoryAuditProtocol:
         tx.transaction_id = "tx-001"
         broadcasts = p.on_quality_revealed(tx, agents)
         assert len(broadcasts) == 1
-        assert "AUDIT RESULT" in broadcasts[0]
+        assert "AUDIT FOLLOW-UP" in broadcasts[0]
         assert "Meridian Manufacturing" in broadcasts[0]
 
     def test_no_broadcast_for_unaudited(self):

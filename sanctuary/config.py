@@ -74,12 +74,12 @@ class EconomicsConfig(BaseModel):
     )
     seller_starting_factories: int = 1
     buyer_starting_cash: float = 6_000.0
-    buyer_daily_production_cap: int = 3
+    buyer_daily_production_cap: int = 5
     factory_build_cost: float = 2_000.0
     factory_build_days: int = 3
     bankruptcy_threshold: float = -5_000.0
-    final_good_base_price_excellent: float = 55.0
-    final_good_base_price_poor: float = 32.0
+    final_good_base_price_excellent: float = 58.0
+    final_good_base_price_poor: float = 35.0
     starting_widgets_per_seller: int = 8
 
     @field_validator("seller_starting_cash", mode="before")

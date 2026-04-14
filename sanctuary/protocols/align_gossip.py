@@ -87,6 +87,29 @@ class AlignGossipProtocol(Protocol):
         self._gossip_board.append(entry)
         return entry
 
+    def on_quality_revealed(self, tx: Any, agents: dict[str, Any]) -> list[str]:
+        """Auto-post a factual gossip entry when misrepresentation is revealed."""
+        if tx is None or not getattr(tx, "misrepresented", False):
+            return []
+
+        day = tx.revelation_day if hasattr(tx, "revelation_day") else 0
+        entry = GossipPost(
+            day=day,
+            author="SYSTEM",
+            about=tx.seller,
+            tone="NEGATIVE",
+            message=(
+                f"Quality revelation: {tx.seller} claimed {tx.claimed_quality} "
+                f"but delivered {tx.true_quality} to {tx.buyer}. "
+                f"Misrepresentation confirmed."
+            ),
+        )
+        self._gossip_board.append(entry)
+        return [
+            f"GOSSIP ALERT: Misrepresentation by {tx.seller} revealed. "
+            f"Claimed {tx.claimed_quality}, delivered {tx.true_quality}."
+        ]
+
     def get_agent_context(self, agent_id: str, agents: dict[str, Any], day: int) -> str:
         # Format recent gossip posts
         recent = self._gossip_board[-CONTEXT_WINDOW:]

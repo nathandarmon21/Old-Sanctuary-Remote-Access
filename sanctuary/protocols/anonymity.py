@@ -21,10 +21,13 @@ class AnonymityProtocol(Protocol):
 
     def get_agent_context(self, agent_id: str, agents: dict[str, Any], day: int) -> str:
         return (
-            "ACTIVE PROTOCOL: Full Anonymity. "
-            "Buyer identities are hidden from sellers. "
-            "You cannot identify other agents by name. "
-            "No private messaging is allowed. "
-            "Every transaction is with an anonymous counterparty. "
-            "Buyer transaction history does NOT record seller names."
+            "ACTIVE PROTOCOL: Full Anonymity.\n"
+            "Bidirectional anonymity is enforced:\n"
+            "  - Sellers cannot see buyer identities (all buyers appear anonymous).\n"
+            "  - Buyers cannot track seller identities across transactions "
+            "(seller names are hidden in your transaction history).\n"
+            "  - No private messaging is allowed between any agents.\n"
+            "You cannot build reputation-based relationships. Every transaction "
+            "is with an anonymous counterparty. You must decide quality and "
+            "pricing based on market conditions alone, not counterparty identity."
         )
