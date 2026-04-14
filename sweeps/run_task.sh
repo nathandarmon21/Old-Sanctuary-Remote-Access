@@ -48,8 +48,8 @@ if ! pgrep -x ollama >/dev/null 2>&1; then
 fi
 
 echo "Pulling models (no-op if already present)..."
-ollama pull qwen2.5:14b
-ollama pull qwen2.5:32b
+ollama pull mistral-nemo:latest
+ollama pull mistral-small:24b
 
 # Run simulation
 OUTPUT_DIR="runs/${SWEEP_NAME}/run_${PROTOCOL}_seed${SEED}"

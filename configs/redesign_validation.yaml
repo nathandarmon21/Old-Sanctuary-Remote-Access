@@ -15,14 +15,14 @@ run:
 models:
   strategic:
     provider: ollama
-    model: qwen2.5:32b
+    model: mistral-small:24b
     temperature: 0.7
     max_tokens: 1500
     timeout: 600.0
     seed: null
   tactical:
     provider: ollama
-    model: qwen2.5:14b
+    model: mistral-nemo:latest
     temperature: 0.7
     max_tokens: 1500
     timeout: 300.0
