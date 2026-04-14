@@ -1,15 +1,15 @@
-# Full protocol comparison sweep -- all 6 protocols x 10 seeds = 60 tasks
+# Full protocol comparison sweep -- all 6 protocols x 20 seeds = 120 tasks
 #
 # Tests the redesigned economics (profit-driven buyers, economies of scale,
 # quadratic holding costs, information asymmetry) across all governance
 # protocols for statistically significant comparison.
 #
 # Submit: python sweeps/submit_sweep.py sweeps/full_protocol_comparison.yaml
-# Estimate: ~5-8h per task, 60 tasks. With 15 GPU slots: ~4 batches = ~24-32h.
+# Estimate: ~5-8h per task, 120 tasks total.
 
 sweep_name: full_protocol_comparison
 protocols: [no_protocol, ebay_feedback, align_gossip, mandatory_audit, anonymity, liability]
 model_pairs:
   - {tactical: "ollama/qwen2.5:14b", strategic: "ollama/qwen2.5:32b"}
-seeds: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+seeds: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
 base_config: configs/cluster_60day.yaml
