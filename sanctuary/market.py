@@ -184,16 +184,17 @@ class PendingOffer:
     """
     An offer placed by a seller, awaiting acceptance or rejection by the buyer.
 
-    quality_to_send is the ACTUAL quality the seller will deliver.
-    claimed_quality is what the seller tells the buyer.
-    These may differ (deception). Buyers only see claimed_quality.
+    Offers carry only the claimed quality at placement time. The actual
+    shipped quality is decided separately at acceptance time by the
+    fulfillment phase (see sanctuary.fulfillment). This decouples the
+    claim-quality and ship-quality decisions to remove the structural
+    adjacency cue in the tactical offer schema.
     """
     offer_id: str
     seller: str
     buyer: str
     quantity: int
     claimed_quality: str    # visible to buyer
-    quality_to_send: str    # actual quality; recorded at transaction time
     price_per_unit: float
     day_made: int
     status: str = "pending"  # pending | accepted | declined | expired
@@ -357,20 +358,22 @@ class MarketState:
         buyer: str,
         quantity: int,
         claimed_quality: str,
-        quality_to_send: str,
         price_per_unit: float,
         day: int,
     ) -> PendingOffer:
         """
         Validate and register a new offer from a seller to a buyer.
-        Returns the PendingOffer on success; raises MarketValidationError otherwise.
+
+        The offer only carries claimed_quality at placement time. The
+        actual shipped quality is chosen at acceptance time by the
+        fulfillment phase.
         """
         self._validate_offer_params(
             seller=seller,
             buyer=buyer,
             quantity=quantity,
             claimed_quality=claimed_quality,
-            quality_to_send=quality_to_send,
+            quality_to_send=claimed_quality,  # provisional; unused downstream
             price_per_unit=price_per_unit,
         )
 
@@ -381,7 +384,6 @@ class MarketState:
             buyer=buyer,
             quantity=quantity,
             claimed_quality=claimed_quality,
-            quality_to_send=quality_to_send,
             price_per_unit=price_per_unit,
             day_made=day,
             status="pending",
@@ -389,20 +391,29 @@ class MarketState:
         self.pending_offers[offer_id] = offer
         return offer
 
-    def accept_offer(self, offer_id: str, revelation_day: int, day: int) -> TransactionRecord:
+    def accept_offer(
+        self, offer_id: str, revelation_day: int, day: int,
+        shipped_quality: str | None = None,
+        widget_ids: list[str] | None = None,
+    ) -> TransactionRecord:
         """
-        Execute a pending offer: transfer widgets and cash, record the transaction.
+        Execute a pending offer: transfer widgets and cash, record transaction.
 
-        revelation_day is sampled by the RevelationScheduler before this call
-        and passed in so it can be stored in the transaction record.
+        The fulfillment phase chooses `shipped_quality` and `widget_ids`
+        before this is called. If shipped_quality is not provided, it
+        defaults to the offer's claimed_quality (fail-safe to honesty).
+
+        revelation_day is sampled by the RevelationScheduler before this call.
         """
         offer = self._get_pending_offer(offer_id)
+        if shipped_quality is None:
+            shipped_quality = offer.claimed_quality
         self._validate_offer_params(
             seller=offer.seller,
             buyer=offer.buyer,
             quantity=offer.quantity,
             claimed_quality=offer.claimed_quality,
-            quality_to_send=offer.quality_to_send,
+            quality_to_send=shipped_quality,
             price_per_unit=offer.price_per_unit,
             check_buyer_funds=True,  # verify buyer can pay at acceptance time
         )
@@ -411,9 +422,14 @@ class MarketState:
         buyer = self.buyers[offer.buyer]
         total_cost = offer.price_per_unit * offer.quantity
 
-        # Transfer inventory: remove widget instances AND decrement count.
-        # pop_widgets_of_quality updates both the list and the dict counter.
-        seller.pop_widgets_of_quality(offer.quality_to_send, offer.quantity)
+        # Transfer inventory: if specific widget_ids were picked by the
+        # fulfillment phase, remove those by id; otherwise pop any
+        # matching-quality units.
+        if widget_ids:
+            for wid in widget_ids:
+                seller.remove_widget(wid)
+        else:
+            seller.pop_widgets_of_quality(shipped_quality, offer.quantity)
 
         # Add to buyer as a WidgetLot (true_quality hidden until revelation)
         lot = WidgetLot(
@@ -442,7 +458,7 @@ class MarketState:
             buyer=offer.buyer,
             quantity=offer.quantity,
             claimed_quality=offer.claimed_quality,
-            true_quality=offer.quality_to_send,
+            true_quality=shipped_quality,
             price_per_unit=offer.price_per_unit,
             day=day,
             revelation_day=revelation_day,
@@ -1125,11 +1141,20 @@ class MarketState:
         if quality_to_send not in ("Excellent", "Poor"):
             raise MarketValidationError(f"Invalid quality_to_send: {quality_to_send!r}")
 
-        # Seller must have enough of the quality they plan to send
-        available = seller_state.inventory.get(quality_to_send, 0)
+        # Inventory check. At placement (check_buyer_funds=False) we only
+        # verify the seller has enough total widgets of any quality; the
+        # fulfillment phase will pick the specific unit at acceptance time.
+        # At acceptance (check_buyer_funds=True) we verify they have enough
+        # of the quality actually being shipped.
+        if check_buyer_funds:
+            available = seller_state.inventory.get(quality_to_send, 0)
+            inventory_target = f"{quality_to_send} widgets"
+        else:
+            available = sum(seller_state.inventory.values())
+            inventory_target = "widgets (any quality)"
         if available < quantity:
             raise MarketValidationError(
-                f"Seller {seller!r} has {available} {quality_to_send} widgets "
+                f"Seller {seller!r} has {available} {inventory_target} "
                 f"but offer requires {quantity}"
             )
 

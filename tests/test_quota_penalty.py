@@ -103,9 +103,7 @@ class TestWidgetsAcquiredTracking:
             seller="Meridian Manufacturing",
             buyer="Halcyon Assembly",
             quantity=3,
-            claimed_quality="Excellent",
-            quality_to_send="Excellent",
-            price_per_unit=50.0,
+            claimed_quality="Excellent",price_per_unit=50.0,
             day=1,
         )
         market.accept_offer(offer.offer_id, revelation_day=6, day=1)
@@ -121,9 +119,7 @@ class TestWidgetsAcquiredTracking:
                 seller="Meridian Manufacturing",
                 buyer="Halcyon Assembly",
                 quantity=qty,
-                claimed_quality="Poor",
-                quality_to_send="Poor",
-                price_per_unit=20.0,
+                claimed_quality="Poor",price_per_unit=20.0,
                 day=1,
             )
             market.accept_offer(offer.offer_id, revelation_day=6, day=1)

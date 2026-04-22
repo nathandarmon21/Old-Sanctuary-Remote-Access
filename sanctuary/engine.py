@@ -826,22 +826,23 @@ class SimulationEngine:
 
             for offer in actions.seller_offers:
                 try:
-                    # Clamp quantity to available inventory of the quality
-                    # being sent, so over-sized LLM requests degrade
-                    # gracefully instead of failing outright.
+                    # Clamp quantity to total inventory available (any
+                    # quality). The fulfillment phase at acceptance time
+                    # will decide which specific widget to ship.
                     seller_state = self.market.sellers.get(name)
-                    available = seller_state.inventory.get(offer.quality_to_send, 0) if seller_state else 0
+                    available = (
+                        sum(seller_state.inventory.values()) if seller_state else 0
+                    )
                     qty = min(offer.qty, available)
                     if qty <= 0:
                         self._curr_outcomes[name].append(
-                            f"Offer to {offer.to}: SKIPPED (no {offer.quality_to_send} inventory)"
+                            f"Offer to {offer.to}: SKIPPED (no inventory available)"
                         )
                         continue
                     pending = self.market.place_offer(
                         seller=name, buyer=offer.to,
                         quantity=qty,
                         claimed_quality=offer.claimed_quality,
-                        quality_to_send=offer.quality_to_send,
                         price_per_unit=offer.price_per_unit,
                         day=day,
                     )
@@ -896,7 +897,6 @@ class SimulationEngine:
                         seller=offer.to, buyer=name,
                         quantity=offer.qty,
                         claimed_quality=offer.claimed_quality,
-                        quality_to_send=offer.claimed_quality,
                         price_per_unit=offer.price_per_unit,
                         day=day,
                     )
@@ -978,17 +978,25 @@ class SimulationEngine:
             return False
 
         try:
+            # Default shipped_quality to claimed (fail-safe to honesty).
+            # Commit 3 will replace this with a fulfillment LLM call.
+            shipped_quality = offer.claimed_quality
+            widget_ids: list[str] | None = None
+
             revelation_day = self.revelation_scheduler.schedule(
                 transaction_id=resolved,
                 seller=offer.seller,
                 buyer=buyer_name,
                 claimed_quality=offer.claimed_quality,
-                true_quality=offer.quality_to_send,
+                true_quality=shipped_quality,
                 quantity=offer.quantity,
                 transaction_day=day,
             )
 
-            tx = self.market.accept_offer(resolved, revelation_day, day)
+            tx = self.market.accept_offer(
+                resolved, revelation_day, day,
+                shipped_quality=shipped_quality, widget_ids=widget_ids,
+            )
 
             evt = self.run_dir.events.write_event(
                 "transaction_completed", day=day,
@@ -1094,7 +1102,7 @@ class SimulationEngine:
                 "messages": [{"to": m.to, "public": m.public, "body": m.body} for m in actions.messages],
                 "seller_offers": [
                     {"to": o.to, "qty": o.qty, "claimed_quality": o.claimed_quality,
-                     "quality_to_send": o.quality_to_send, "price_per_unit": o.price_per_unit}
+                     "price_per_unit": o.price_per_unit}
                     for o in actions.seller_offers
                 ],
                 "buyer_offers": [

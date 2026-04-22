@@ -49,9 +49,7 @@ class TestResolveOfferId:
             seller=seller,
             buyer=buyer,
             quantity=1,
-            claimed_quality="Excellent",
-            quality_to_send="Excellent",
-            price_per_unit=50.0,
+            claimed_quality="Excellent",price_per_unit=50.0,
             day_made=1,
             status="pending",
         )
@@ -190,7 +188,6 @@ class TestInventoryVisibility:
             buyer="Halcyon Assembly",
             quantity=2,
             claimed_quality="Excellent",
-            quality_to_send="Poor",   # ← deception
             price_per_unit=50.0,
             day=1,
         )
@@ -220,9 +217,7 @@ class TestInventoryVisibility:
             seller="Meridian Manufacturing",
             buyer="Halcyon Assembly",
             quantity=2,
-            claimed_quality="Excellent",
-            quality_to_send="Poor",
-            price_per_unit=50.0,
+            claimed_quality="Excellent",price_per_unit=50.0,
             day=1,
         )
         tx = market.accept_offer(offer.offer_id, revelation_day=5, day=1)
@@ -254,9 +249,7 @@ class TestInventoryVisibility:
             seller="Meridian Manufacturing",
             buyer="Halcyon Assembly",
             quantity=3,
-            claimed_quality="Excellent",
-            quality_to_send="Excellent",
-            price_per_unit=50.0,
+            claimed_quality="Excellent",price_per_unit=50.0,
             day=1,
         )
         market.accept_offer(offer.offer_id, revelation_day=5, day=1)
@@ -283,22 +276,22 @@ class TestTransactionValidation:
                 seller="Meridian Manufacturing",
                 buyer="Meridian Manufacturing",  # same agent
                 quantity=1,
-                claimed_quality="Excellent",
-                quality_to_send="Excellent",
-                price_per_unit=50.0,
+                claimed_quality="Excellent",price_per_unit=50.0,
                 day=1,
             )
 
     def test_insufficient_inventory_rejected(self):
-        market = make_simple_market(seller_excellent=1)
-        with pytest.raises(MarketValidationError, match="has 1 Excellent"):
+        # Under fulfillment-phase architecture, place_offer checks TOTAL
+        # inventory (any quality) rather than the claimed quality
+        # specifically. The specific-quality check moves to acceptance
+        # time when shipped_quality is concrete.
+        market = make_simple_market(seller_excellent=1, seller_poor=0)
+        with pytest.raises(MarketValidationError, match="has 1 widgets"):
             market.place_offer(
                 seller="Meridian Manufacturing",
                 buyer="Halcyon Assembly",
                 quantity=3,           # more than available
-                claimed_quality="Excellent",
-                quality_to_send="Excellent",
-                price_per_unit=50.0,
+                claimed_quality="Excellent", price_per_unit=50.0,
                 day=1,
             )
 
@@ -309,9 +302,7 @@ class TestTransactionValidation:
             seller="Meridian Manufacturing",
             buyer="Halcyon Assembly",
             quantity=1,
-            claimed_quality="Excellent",
-            quality_to_send="Excellent",
-            price_per_unit=50.0,   # costs $50; buyer has only $10
+            claimed_quality="Excellent",price_per_unit=50.0,   # costs $50; buyer has only $10
             day=1,
         )
         with pytest.raises(MarketValidationError, match="has \\$10"):
@@ -324,9 +315,7 @@ class TestTransactionValidation:
                 seller="Meridian Manufacturing",
                 buyer="Halcyon Assembly",
                 quantity=0,
-                claimed_quality="Excellent",
-                quality_to_send="Excellent",
-                price_per_unit=50.0,
+                claimed_quality="Excellent",price_per_unit=50.0,
                 day=1,
             )
 
@@ -337,9 +326,7 @@ class TestTransactionValidation:
                 seller="Meridian Manufacturing",
                 buyer="Halcyon Assembly",
                 quantity=1,
-                claimed_quality="Excellent",
-                quality_to_send="Excellent",
-                price_per_unit=-5.0,
+                claimed_quality="Excellent",price_per_unit=-5.0,
                 day=1,
             )
 
@@ -350,9 +337,7 @@ class TestTransactionValidation:
                 seller="Ghost Corp",
                 buyer="Halcyon Assembly",
                 quantity=1,
-                claimed_quality="Excellent",
-                quality_to_send="Excellent",
-                price_per_unit=50.0,
+                claimed_quality="Excellent",price_per_unit=50.0,
                 day=1,
             )
 
@@ -362,9 +347,7 @@ class TestTransactionValidation:
             seller="Meridian Manufacturing",
             buyer="Halcyon Assembly",
             quantity=1,
-            claimed_quality="Excellent",
-            quality_to_send="Excellent",
-            price_per_unit=50.0,
+            claimed_quality="Excellent",price_per_unit=50.0,
             day=1,
         )
         market.accept_offer(offer.offer_id, revelation_day=5, day=1)
@@ -379,9 +362,7 @@ class TestTransactionValidation:
                 seller="Meridian Manufacturing",
                 buyer="Halcyon Assembly",
                 quantity=1,
-                claimed_quality="Excellent",
-                quality_to_send="Excellent",
-                price_per_unit=50.0,
+                claimed_quality="Excellent",price_per_unit=50.0,
                 day=1,
             )
 
@@ -516,7 +497,6 @@ class TestBuyerProduction:
             buyer="Halcyon Assembly",
             quantity=qty,
             claimed_quality=claimed,
-            quality_to_send=true,
             price_per_unit=50.0,
             day=1,
         )
@@ -574,11 +554,15 @@ class TestRetroactiveAdjustment:
             buyer="Halcyon Assembly",
             quantity=3,
             claimed_quality="Excellent",   # lie
-            quality_to_send="Poor",        # truth
             price_per_unit=50.0,
             day=1,
         )
-        tx = market.accept_offer(offer.offer_id, revelation_day=5, day=1)
+        # Under the fulfillment-phase architecture, shipped_quality is
+        # chosen at acceptance time (not offer time). Passing Poor here
+        # simulates the seller's fulfillment decision to ship Poor.
+        tx = market.accept_offer(
+            offer.offer_id, revelation_day=5, day=1, shipped_quality="Poor",
+        )
         return market, tx.transaction_id
 
     def test_buyer_initially_credited_at_claimed_quality(self):
@@ -631,7 +615,6 @@ class TestRetroactiveAdjustment:
             buyer="Halcyon Assembly",
             quantity=2,
             claimed_quality="Excellent",
-            quality_to_send="Excellent",  # honest
             price_per_unit=50.0,
             day=1,
         )
@@ -668,12 +651,13 @@ class TestRetroactiveAdjustment:
             seller="Meridian Manufacturing",
             buyer="Halcyon Assembly",
             quantity=2,
-            claimed_quality="Excellent",
-            quality_to_send="Poor",
-            price_per_unit=50.0,
+            claimed_quality="Excellent", price_per_unit=50.0,
             day=1,
         )
-        tx = market.accept_offer(offer.offer_id, revelation_day=5, day=1)
+        # Seller has only Poor inventory so fulfillment ships Poor.
+        tx = market.accept_offer(
+            offer.offer_id, revelation_day=5, day=1, shipped_quality="Poor",
+        )
 
         # Produce goods at current prices (Excellent=$80, Poor=$45)
         market.execute_buyer_production("Halcyon Assembly", quantity=2, current_day=2)
