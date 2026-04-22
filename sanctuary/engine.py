@@ -978,10 +978,38 @@ class SimulationEngine:
             return False
 
         try:
-            # Default shipped_quality to claimed (fail-safe to honesty).
-            # Commit 3 will replace this with a fulfillment LLM call.
+            # Fulfillment phase: the seller picks a specific widget from
+            # inventory to ship. This decouples the claim-quality decision
+            # (made at offer-placement by the tactical tier) from the
+            # ship-quality decision (made here in a separate LLM call
+            # framed as inventory logistics).
             shipped_quality = offer.claimed_quality
             widget_ids: list[str] | None = None
+            fulfillment_enabled = getattr(self.config.run, "fulfillment_phase", True)
+            seller_agent = self.agents.get(offer.seller)
+            seller_state = self.market.sellers.get(offer.seller)
+            if (fulfillment_enabled
+                    and seller_agent is not None
+                    and seller_state is not None
+                    and seller_state.widget_instances):
+                try:
+                    shipped_quality, widget_ids, _raw = seller_agent.fulfillment_call(
+                        buyer_name=buyer_name,
+                        quantity=offer.quantity,
+                        claimed_quality=offer.claimed_quality,
+                        price_per_unit=offer.price_per_unit,
+                        widget_instances=list(seller_state.widget_instances),
+                        revelation_days=REVELATION_LAG_DAYS,
+                        current_day=day,
+                    )
+                except Exception as e:
+                    # Fail-safe: ship claimed quality on any fulfillment error
+                    log.warning(
+                        "fulfillment_call failed for %s: %s; defaulting to claimed",
+                        offer.seller, e,
+                    )
+                    shipped_quality = offer.claimed_quality
+                    widget_ids = None
 
             revelation_day = self.revelation_scheduler.schedule(
                 transaction_id=resolved,

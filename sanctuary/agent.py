@@ -168,6 +168,105 @@ class Agent:
         # Call counters
         self.tactical_call_count: int = 0
         self.strategic_call_count: int = 0
+        self.fulfillment_call_count: int = 0
+
+    def fulfillment_call(
+        self,
+        buyer_name: str,
+        quantity: int,
+        claimed_quality: str,
+        price_per_unit: float,
+        widget_instances: list,
+        revelation_days: int,
+        current_day: int,
+    ) -> tuple[str, list[str], str]:
+        """Run the fulfillment LLM call for one accepted order.
+
+        Returns (shipped_quality, widget_ids, raw_response). The raw
+        response is returned so the caller can log it as part of the
+        fulfillment_decision event.
+
+        The decision is enforced uniform across all units in the order
+        (decision 1a): the first ship-item's quality is used and we pop
+        that many widgets of that quality. On parse failure, we
+        fail-safe to claimed_quality.
+        """
+        from sanctuary.fulfillment import (
+            build_fulfillment_prompt,
+            parse_fulfillment_response,
+            failsafe_ship_by_claimed_quality,
+        )
+
+        system_prompt = build_fulfillment_prompt(
+            company_name=self.name,
+            buyer_name=buyer_name,
+            quantity=quantity,
+            claimed_quality=claimed_quality,
+            price_per_unit=price_per_unit,
+            widget_instances=widget_instances,
+            revelation_days=revelation_days,
+            current_day=current_day,
+        )
+
+        # Standalone call -- no history, no prior context. The fulfillment
+        # manager is framed as a distinct role from the tactical CEO.
+        response = self._tactical_provider.complete(
+            system_prompt=system_prompt,
+            history=[{"role": "user", "content": "Make your fulfillment selection now."}],
+            max_tokens=400,
+        )
+        self.fulfillment_call_count += 1
+
+        parsed = parse_fulfillment_response(
+            response.completion, claimed_quality, quantity,
+        )
+        if parsed is None or len(parsed) == 0:
+            picks = failsafe_ship_by_claimed_quality(
+                claimed_quality, quantity, widget_instances,
+            )
+            if not picks:
+                # Nothing available at all; return claimed as a last resort.
+                return claimed_quality, [], response.completion
+            return picks[0].quality, [p.widget_id for p in picks], response.completion
+
+        # Uniform fulfillment: take the first parsed item's quality as
+        # the decision for the whole order.
+        chosen_quality = parsed[0].quality
+        requested_ids = [p.widget_id for p in parsed if p.quality == chosen_quality]
+
+        # Validate: each requested widget must exist in the seller's
+        # inventory with the claimed quality. If any id is missing or
+        # mis-qualified, fall back to pop-by-quality.
+        inv_by_id = {w.id: w for w in widget_instances}
+        valid_ids: list[str] = []
+        for wid in requested_ids:
+            w = inv_by_id.get(wid)
+            if w is None or w.quality != chosen_quality:
+                continue
+            if wid in valid_ids:
+                continue  # duplicate
+            valid_ids.append(wid)
+
+        # If we don't have enough validated ids, top up with any
+        # available widgets of the chosen quality.
+        if len(valid_ids) < quantity:
+            for w in widget_instances:
+                if len(valid_ids) >= quantity:
+                    break
+                if w.quality == chosen_quality and w.id not in valid_ids:
+                    valid_ids.append(w.id)
+
+        # If still not enough of the chosen quality, fall back to
+        # shipping whatever is available using the fail-safe policy.
+        if len(valid_ids) < quantity:
+            picks = failsafe_ship_by_claimed_quality(
+                claimed_quality, quantity, widget_instances,
+            )
+            if picks:
+                return picks[0].quality, [p.widget_id for p in picks], response.completion
+            return claimed_quality, [], response.completion
+
+        return chosen_quality, valid_ids[:quantity], response.completion
 
     def record_interaction(self, day: int, counterparty: str, interaction_type: str) -> None:
         """Record an interaction event for repetition awareness tracking."""
