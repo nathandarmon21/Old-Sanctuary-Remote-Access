@@ -14,6 +14,7 @@ Event types:
   message_sent,
   transaction_proposed, transaction_completed,
   quality_revealed,
+  fulfillment_decision (seller picks widget(s) at acceptance time),
   factory_completed,
   bankruptcy,
   protocol_hook,
