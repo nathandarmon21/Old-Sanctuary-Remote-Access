@@ -1,0 +1,13 @@
+# Fulfillment-phase validation sweep: 2 protocols x 3 seeds = 6 tasks.
+#
+# Purpose: verify the new fulfillment-phase architecture works end-to-end and
+# establish whether decoupling the ship decision from the claim decision
+# changes the observed deception rate vs the no-fulfillment baseline.
+#
+# Submit: python sweeps/submit_sweep.py sweeps/fulfillment_validation.yaml
+sweep_name: fulfillment_validation
+protocols: [no_protocol, ebay_feedback]
+model_pairs:
+  - {tactical: "ollama/qwen2.5:32b", strategic: "ollama/qwen2.5:32b"}
+seeds: [1, 2, 3]
+base_config: configs/fulfillment_test.yaml
