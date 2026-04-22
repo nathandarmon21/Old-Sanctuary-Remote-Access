@@ -12,6 +12,7 @@ hook (Mode 2).
 from __future__ import annotations
 
 import logging
+import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Callable
@@ -44,6 +45,50 @@ from sanctuary.run_directory import RunDirectory
 log = logging.getLogger(__name__)
 
 _RETRY_DELAYS = (2.0, 4.0, 8.0)  # seconds between retry attempts
+
+
+def _apply_economics_overrides(econ_cfg) -> None:
+    """Rewrite module-level economic constants from config overrides.
+
+    Because many modules did `from sanctuary.economics import X`, binding
+    the value at import time, we also patch the rebound names in every
+    module that uses them.
+    """
+    import sanctuary.economics as econ_mod
+    import sanctuary.agent as agent_mod
+    import sanctuary.revelation as rev_mod
+    import sanctuary.engine as eng_mod
+
+    overrides = {
+        "REVELATION_LAG_DAYS": econ_cfg.revelation_days,
+        "HOLDING_COST_BASE_RATE": econ_cfg.holding_cost_base_rate,
+        "HOLDING_COST_SCALE_RATE": econ_cfg.holding_cost_scale_rate,
+    }
+    for name, value in overrides.items():
+        if value is None:
+            continue
+        setattr(econ_mod, name, value)
+        for mod in (agent_mod, rev_mod, eng_mod):
+            if hasattr(mod, name):
+                setattr(mod, name, value)
+
+    # Production cost base: dict requires deeper mutation.
+    if econ_cfg.production_cost_excellent is not None:
+        econ_mod.PRODUCTION_COST_BASE["Excellent"] = float(
+            econ_cfg.production_cost_excellent,
+        )
+    if econ_cfg.production_cost_poor is not None:
+        econ_mod.PRODUCTION_COST_BASE["Poor"] = float(econ_cfg.production_cost_poor)
+
+    log.info(
+        "applied economics overrides: revelation=%s holding_base=%s holding_scale=%s "
+        "excellent_cost=%s poor_cost=%s",
+        econ_mod.REVELATION_LAG_DAYS,
+        econ_mod.HOLDING_COST_BASE_RATE,
+        econ_mod.HOLDING_COST_SCALE_RATE,
+        econ_mod.PRODUCTION_COST_BASE["Excellent"],
+        econ_mod.PRODUCTION_COST_BASE["Poor"],
+    )
 
 
 def _retry_llm_call(fn: Callable[[], Any], agent_name: str) -> Any:
@@ -80,12 +125,19 @@ def _make_provider(model_cfg: Any, seed: int | None = None) -> ModelProvider:
 
     if provider_name == "ollama":
         from sanctuary.providers.ollama import OllamaProvider
+        env_host = os.environ.get("SANCTUARY_OLLAMA_HOST")
+        if env_host and not base_url:
+            if not env_host.startswith("http"):
+                env_host = f"http://{env_host}"
+            resolved_base_url = env_host
+        else:
+            resolved_base_url = base_url or "http://localhost:11434"
         return OllamaProvider(
             model=model_name,
             temperature=temperature,
             seed=seed,
             timeout=timeout,
-            base_url=base_url or "http://localhost:11434",
+            base_url=resolved_base_url,
         )
     elif provider_name == "vllm":
         from sanctuary.providers.vllm import VLLMProvider
@@ -128,6 +180,7 @@ class SimulationEngine:
         self.config = config
         self.seed = seed
         self.run_dir = run_directory
+        _apply_economics_overrides(config.economics)
         self.protocol = protocol or create_protocol(config_to_dict(config))
         self.context_manager = ContextManager()
 
@@ -151,6 +204,8 @@ class SimulationEngine:
         seller_names = [sc.name for sc in config.agents.sellers]
         buyer_names = [bc.name for bc in config.agents.buyers]
         self.agents: dict[str, Agent] = {}
+        prompt_style = config.prompts.style if hasattr(config, "prompts") else "full"
+        anchor_stance = config.prompts.anchor_stance if hasattr(config, "prompts") else "honest"
         for sc in config.agents.sellers:
             self.agents[sc.name] = Agent(
                 name=sc.name,
@@ -162,6 +217,9 @@ class SimulationEngine:
                 days_total=config.run.days,
                 seller_names=seller_names,
                 buyer_names=buyer_names,
+                persona_override=sc.persona_override,
+                prompt_style=prompt_style,
+                anchor_stance=anchor_stance,
             )
         for bc in config.agents.buyers:
             self.agents[bc.name] = Agent(
@@ -174,6 +232,9 @@ class SimulationEngine:
                 days_total=config.run.days,
                 seller_names=seller_names,
                 buyer_names=buyer_names,
+                persona_override=bc.persona_override,
+                prompt_style=prompt_style,
+                anchor_stance=anchor_stance,
             )
 
         # Protocol initialization (RNG and market references for Phase 2 protocols)
@@ -744,6 +805,7 @@ class SimulationEngine:
                 try:
                     result = self.market.execute_production(
                         name, excellent=actions.produce_excellent, poor=actions.produce_poor,
+                        day=day,
                     )
                     self.run_dir.events.write_event("production", day=day, **result)
                     self._curr_outcomes[name].append(

@@ -97,10 +97,26 @@ class FinalGoodsRecord:
 
 
 @dataclass
+class WidgetInstance:
+    """A single physical unit of inventory with stable identity.
+
+    Each widget produced gets a unique id so the fulfillment phase can pick
+    one specific unit to ship. Aggregate counts in SellerState.inventory are
+    maintained in parallel for backward compatibility.
+    """
+    id: str                    # e.g. "W001"
+    quality: str               # "Excellent" or "Poor"
+    production_cost: float     # captured at production time (factory-dependent)
+    day_produced: int          # 0 for starting inventory
+
+
+@dataclass
 class SellerState:
     name: str
     cash: float
     inventory: dict[str, int] = field(default_factory=lambda: {"Excellent": 0, "Poor": 0})
+    widget_instances: list[WidgetInstance] = field(default_factory=list)
+    next_widget_id: int = 1    # monotonic counter for widget IDs
     factories: int = 1
     factory_build_queue: list[int] = field(default_factory=list)  # completion days
     bankrupt: bool = False
@@ -108,6 +124,45 @@ class SellerState:
     consecutive_inactive_days: int = 0
     production_costs_incurred: float = 0.0  # cumulative production costs paid
     starting_cash: float = 0.0  # set at market creation for net profit display
+
+    def mint_widget(self, quality: str, production_cost: float,
+                    day_produced: int) -> WidgetInstance:
+        """Create a new widget instance, increment the inventory count, and
+        append to widget_instances. Returns the minted WidgetInstance."""
+        wid = f"W{self.next_widget_id:04d}"
+        self.next_widget_id += 1
+        w = WidgetInstance(
+            id=wid, quality=quality,
+            production_cost=production_cost, day_produced=day_produced,
+        )
+        self.widget_instances.append(w)
+        self.inventory[quality] = self.inventory.get(quality, 0) + 1
+        return w
+
+    def remove_widget(self, widget_id: str) -> WidgetInstance | None:
+        """Pop a widget by id; decrement the inventory count. Returns the
+        removed instance, or None if not found."""
+        for i, w in enumerate(self.widget_instances):
+            if w.id == widget_id:
+                popped = self.widget_instances.pop(i)
+                self.inventory[popped.quality] = max(
+                    0, self.inventory.get(popped.quality, 0) - 1,
+                )
+                return popped
+        return None
+
+    def pop_widgets_of_quality(self, quality: str, n: int) -> list[WidgetInstance]:
+        """Pop the first n widgets matching `quality`. Used by the
+        fail-safe fulfillment path."""
+        popped: list[WidgetInstance] = []
+        for w in list(self.widget_instances):
+            if len(popped) >= n:
+                break
+            if w.quality == quality:
+                self.widget_instances.remove(w)
+                popped.append(w)
+        self.inventory[quality] = max(0, self.inventory.get(quality, 0) - len(popped))
+        return popped
 
 
 @dataclass
@@ -356,8 +411,9 @@ class MarketState:
         buyer = self.buyers[offer.buyer]
         total_cost = offer.price_per_unit * offer.quantity
 
-        # Transfer inventory
-        seller.inventory[offer.quality_to_send] -= offer.quantity
+        # Transfer inventory: remove widget instances AND decrement count.
+        # pop_widgets_of_quality updates both the list and the dict counter.
+        seller.pop_widgets_of_quality(offer.quality_to_send, offer.quantity)
 
         # Add to buyer as a WidgetLot (true_quality hidden until revelation)
         lot = WidgetLot(
@@ -424,7 +480,7 @@ class MarketState:
     # ── Production ──────────────────────────────────────────────────────────
 
     def execute_production(
-        self, seller_name: str, excellent: int, poor: int
+        self, seller_name: str, excellent: int, poor: int, day: int = 0,
     ) -> dict[str, Any]:
         """
         Execute a seller's daily production decision.
@@ -434,7 +490,8 @@ class MarketState:
         rejected outright.  This prevents LLM over-requests from
         silently zeroing out all production.
 
-        Deducts production cost, adds widgets to inventory.
+        Deducts production cost, mints WidgetInstance objects, and keeps
+        the aggregate SellerState.inventory counts in sync.
         Returns a summary dict for logging.
         """
         seller = self._get_active_seller(seller_name)
@@ -447,11 +504,9 @@ class MarketState:
             excellent = min(excellent, capacity)
             poor = min(poor, capacity - excellent)
 
-        cost = 0.0
-        if excellent > 0:
-            cost += production_cost("Excellent", seller.factories) * excellent
-        if poor > 0:
-            cost += production_cost("Poor", seller.factories) * poor
+        unit_cost_excellent = production_cost("Excellent", seller.factories)
+        unit_cost_poor = production_cost("Poor", seller.factories)
+        cost = unit_cost_excellent * excellent + unit_cost_poor * poor
 
         if seller.cash < cost:
             raise MarketValidationError(
@@ -460,8 +515,11 @@ class MarketState:
 
         seller.cash -= cost
         seller.production_costs_incurred += cost
-        seller.inventory["Excellent"] = seller.inventory.get("Excellent", 0) + excellent
-        seller.inventory["Poor"] = seller.inventory.get("Poor", 0) + poor
+
+        for _ in range(excellent):
+            seller.mint_widget("Excellent", unit_cost_excellent, day)
+        for _ in range(poor):
+            seller.mint_widget("Poor", unit_cost_poor, day)
 
         return {"seller": seller_name, "excellent": excellent, "poor": poor, "cost": round(cost, 4)}
 
@@ -709,8 +767,9 @@ class MarketState:
             if not seller.bankrupt and seller.cash < BANKRUPTCY_THRESHOLD:
                 seller.bankrupt = True
                 # Write off inventory at a loss (no salvage)
-                for quality, count in seller.inventory.items():
+                for quality in list(seller.inventory.keys()):
                     seller.inventory[quality] = 0
+                seller.widget_instances.clear()
                 newly_bankrupt.append(name)
 
         for name, buyer in self.buyers.items():
@@ -733,6 +792,7 @@ class MarketState:
             seller.cash -= cost
             for quality in list(seller.inventory):
                 seller.inventory[quality] = 0
+            seller.widget_instances.clear()
             write_offs[name] = round(cost, 4)
         return write_offs
 
@@ -1127,13 +1187,21 @@ def build_initial_market(
             excellent = widgets_per_seller // 2
         poor = widgets_per_seller - excellent
 
-        sellers[sc["name"]] = SellerState(
+        seller_state = SellerState(
             name=sc["name"],
             cash=cash,
-            inventory={"Excellent": excellent, "Poor": poor},
+            inventory={"Excellent": 0, "Poor": 0},  # mint_widget will populate
             factories=seller_factories,
             starting_cash=cash,
         )
+        # Mint starting inventory as individual widget instances (day 0).
+        unit_cost_excellent = production_cost("Excellent", seller_factories)
+        unit_cost_poor = production_cost("Poor", seller_factories)
+        for _ in range(excellent):
+            seller_state.mint_widget("Excellent", unit_cost_excellent, day_produced=0)
+        for _ in range(poor):
+            seller_state.mint_widget("Poor", unit_cost_poor, day_produced=0)
+        sellers[sc["name"]] = seller_state
 
     buyers: dict[str, BuyerState] = {}
     for bc in config.get("agents", {}).get("buyers", []):

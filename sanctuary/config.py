@@ -50,6 +50,16 @@ class ProtocolConfig(BaseModel):
     description: str = ""
 
 
+class PromptConfig(BaseModel):
+    """Which prompt template to use. 'full' = current default, 'simple' =
+    minimal non-anchoring prompt for hypothesis tests."""
+    style: str = "full"  # "full" or "simple"
+    # Anchor flip: the hardcoded example value in the policy JSON.
+    # "honest" is the current default; "deceptive" tests whether flipping the
+    # example alone moves the baseline.
+    anchor_stance: str = "honest"
+
+
 class RunConfig(BaseModel):
     days: int = 30
     strategic_tier_days: list[int] = Field(default_factory=lambda: [1, 5, 10, 15, 20, 25, 30])
@@ -57,6 +67,11 @@ class RunConfig(BaseModel):
     inactivity_nudge_threshold: int = 2
     max_parallel_llm_calls: int = 2
     checkpoint_interval: int = 5
+    # When true, after a buyer accepts an offer the seller makes a separate
+    # LLM call to choose which specific widget from inventory to ship. This
+    # decouples the claim-quality and ship-quality decisions, removing the
+    # structural adjacency cue in the offer JSON schema.
+    fulfillment_phase: bool = True
 
     @field_validator("days")
     @classmethod
@@ -81,6 +96,14 @@ class EconomicsConfig(BaseModel):
     final_good_base_price_excellent: float = 58.0
     final_good_base_price_poor: float = 35.0
     starting_widgets_per_seller: int = 8
+    # -- overnight experiments: economic knobs ---------------------------
+    # None means use the module-level default in sanctuary.economics.
+    revelation_days: int | None = None  # default 5
+    holding_cost_base_rate: float | None = None  # default 0.02
+    holding_cost_scale_rate: float | None = None  # default 0.005
+    production_cost_excellent: float | None = None  # default 30.0
+    production_cost_poor: float | None = None  # default 20.0
+    anonymity_identity_churn_days: int | None = None  # None = disabled
 
     @field_validator("seller_starting_cash", mode="before")
     @classmethod
@@ -97,10 +120,15 @@ class EconomicsConfig(BaseModel):
 
 class SellerAgentConfig(BaseModel):
     name: str
+    # Optional operator-principle overlay prepended to the strategic and tactical
+    # system prompts for this specific seller. Used for red-team / bad-actor
+    # experiments. None = no overlay (default).
+    persona_override: str | None = None
 
 
 class BuyerAgentConfig(BaseModel):
     name: str
+    persona_override: str | None = None
 
 
 class AgentsConfig(BaseModel):
@@ -129,6 +157,7 @@ class SimulationConfig(BaseModel):
     economics: EconomicsConfig = Field(default_factory=EconomicsConfig)
     agents: AgentsConfig
     protocol: ProtocolConfig = Field(default_factory=ProtocolConfig)
+    prompts: PromptConfig = Field(default_factory=PromptConfig)
 
     model_config = {"arbitrary_types_allowed": True}
 
