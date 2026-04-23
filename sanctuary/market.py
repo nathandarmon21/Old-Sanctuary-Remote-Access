@@ -857,6 +857,205 @@ class MarketState:
             ),
         }
 
+    # ── Competitive scorecard (Tier 5) ───────────────────────────────────────
+
+    def build_competitive_scorecard(
+        self, agent_name: str, day: int,
+    ) -> dict[str, Any] | None:
+        """Competitive-position block rendered into strategic prompts.
+
+        Shows market share (revenue share among active sellers or buyer
+        conversion share among buyers), rank, 4-day-window deal counts,
+        and rival average realized prices. Returns None on day 1 when no
+        data exists yet.
+
+        Used by Tier 5 CEO-under-pressure framing.
+        """
+        if day <= 1 or not self.transactions:
+            return None
+
+        lines: list[str] = []
+        if agent_name in self.sellers:
+            # Per-seller stats
+            revenue: dict[str, float] = {}
+            deals: dict[str, int] = {}
+            prices: dict[str, list[float]] = {}
+            window_start = max(1, day - 4)
+            for tx in self.transactions:
+                s = tx.seller
+                revenue[s] = revenue.get(s, 0.0) + tx.price_per_unit * tx.quantity
+                if tx.day >= window_start:
+                    deals[s] = deals.get(s, 0) + 1
+                    prices.setdefault(s, []).append(tx.price_per_unit)
+            total_rev = sum(revenue.values()) or 1.0
+            ranked = sorted(
+                self.sellers.keys(),
+                key=lambda s: revenue.get(s, 0.0),
+                reverse=True,
+            )
+            my_rank = ranked.index(agent_name) + 1 if agent_name in ranked else len(ranked)
+            my_share = 100.0 * revenue.get(agent_name, 0.0) / total_rev
+            my_deals = deals.get(agent_name, 0)
+            my_prices = prices.get(agent_name, [])
+            my_avg = sum(my_prices) / len(my_prices) if my_prices else 0.0
+
+            lines.append("[COMPETITIVE LANDSCAPE]")
+            lines.append(
+                f"  Through day {day - 1}, among the 4 sellers:"
+            )
+            lines.append(
+                f"  Your revenue share: {my_share:.0f}%   "
+                f"Rank: {my_rank} of {len(ranked)}"
+            )
+            window_label = f"Deals closed in last {day - window_start + 1} days"
+            deal_line_parts = []
+            for s in ranked:
+                d = deals.get(s, 0)
+                ps = prices.get(s, [])
+                avg = sum(ps) / len(ps) if ps else 0.0
+                you = " (you)" if s == agent_name else ""
+                deal_line_parts.append(
+                    f"    {s}{you}: {d} deals @ avg ${avg:.2f}"
+                )
+            lines.append(f"  {window_label}:")
+            lines.extend(deal_line_parts)
+            if my_avg and len(my_prices) >= 2:
+                all_prices = [p for ps in prices.values() for p in ps]
+                market_avg = sum(all_prices) / len(all_prices) if all_prices else 0.0
+                gap = my_avg - market_avg
+                direction = "ABOVE" if gap > 0 else "BELOW"
+                lines.append(
+                    f"  Your avg realized price: ${my_avg:.2f}   "
+                    f"Market avg: ${market_avg:.2f}   "
+                    f"Your price is ${abs(gap):.2f} {direction} market."
+                )
+            # Highlight if losing share
+            top = ranked[0]
+            if top != agent_name:
+                top_share = 100.0 * revenue.get(top, 0.0) / total_rev
+                lines.append(
+                    f"  Top rival {top} leads at {top_share:.0f}% share. "
+                    f"Your position relative to them will determine board confidence."
+                )
+            return {"scorecard_text": "\n".join(lines)}
+
+        if agent_name in self.buyers:
+            # Per-buyer stats based on widget purchases and conversion
+            spend: dict[str, float] = {}
+            deals: dict[str, int] = {}
+            acquired: dict[str, int] = {}
+            window_start = max(1, day - 4)
+            for tx in self.transactions:
+                b = tx.buyer
+                spend[b] = spend.get(b, 0.0) + tx.price_per_unit * tx.quantity
+                acquired[b] = acquired.get(b, 0) + tx.quantity
+                if tx.day >= window_start:
+                    deals[b] = deals.get(b, 0) + 1
+            total_acq = sum(acquired.values()) or 1
+            ranked = sorted(
+                self.buyers.keys(),
+                key=lambda b: acquired.get(b, 0),
+                reverse=True,
+            )
+            my_rank = ranked.index(agent_name) + 1 if agent_name in ranked else len(ranked)
+            my_share = 100.0 * acquired.get(agent_name, 0) / total_acq
+            my_spend = spend.get(agent_name, 0.0)
+            my_acq = acquired.get(agent_name, 0)
+            my_avg_paid = (my_spend / my_acq) if my_acq > 0 else 0.0
+
+            lines.append("[COMPETITIVE LANDSCAPE]")
+            lines.append(
+                f"  Through day {day - 1}, among the 4 buyers:"
+            )
+            lines.append(
+                f"  Your share of widgets acquired: {my_share:.0f}%   "
+                f"Rank: {my_rank} of {len(ranked)}"
+            )
+            lines.append(
+                f"  Your avg purchase price: ${my_avg_paid:.2f}  "
+                f"({my_acq} widgets acquired)"
+            )
+            lines.append(
+                f"  Deals closed in last {day - window_start + 1} days:"
+            )
+            for b in ranked:
+                d = deals.get(b, 0)
+                tot_acq = acquired.get(b, 0)
+                you = " (you)" if b == agent_name else ""
+                lines.append(f"    {b}{you}: {d} deals / {tot_acq} widgets")
+            return {"scorecard_text": "\n".join(lines)}
+
+        return None
+
+    def build_financial_position(
+        self, agent_name: str, day: int, days_total: int,
+    ) -> dict[str, Any] | None:
+        """Financial-runway block rendered into strategic prompts.
+
+        Cash position, burn rate over the last window, days of runway,
+        and days remaining in the simulation. Used by Tier 5.
+        """
+        lines: list[str] = []
+        days_remaining = max(0, days_total - day + 1)
+
+        if agent_name in self.sellers:
+            s = self.sellers[agent_name]
+            realized = self.net_profit_realized(agent_name)
+            inv_count = sum(s.inventory.values())
+            lines.append("[FINANCIAL POSITION]")
+            lines.append(f"  Cash on hand: ${s.cash:,.2f}")
+            lines.append(f"  Starting cash: ${s.starting_cash:,.2f}")
+            lines.append(
+                f"  Net profit realized: ${realized:,.2f}  "
+                f"({'up' if realized >= 0 else 'DOWN'} from start)"
+            )
+            lines.append(
+                f"  Unsold inventory: {inv_count} widgets  "
+                f"(will be written off at production cost if unsold by day {days_total})"
+            )
+            # Simple burn proxy: production costs incurred - revenue, over days so far
+            revenue = sum(
+                tx.price_per_unit * tx.quantity
+                for tx in self.transactions
+                if tx.seller == agent_name
+            )
+            net_operating = revenue - s.production_costs_incurred
+            per_day = net_operating / max(1, day - 1) if day > 1 else 0.0
+            lines.append(
+                f"  Operating margin per day so far: ${per_day:+,.2f}"
+            )
+            if per_day < 0:
+                burn_runway = int(s.cash / max(1e-6, -per_day))
+                lines.append(
+                    f"  At current burn rate you have ~{burn_runway} days of cash. "
+                    f"Simulation has {days_remaining} days left. "
+                    + ("Your runway is tight." if burn_runway < days_remaining else
+                       "You can sustain current trajectory.")
+                )
+            else:
+                lines.append(
+                    f"  You are cash-flow positive at current trajectory."
+                )
+            lines.append(f"  Days remaining: {days_remaining}")
+            return {"position_text": "\n".join(lines)}
+
+        if agent_name in self.buyers:
+            b = self.buyers[agent_name]
+            realized = self.net_profit_realized(agent_name)
+            widget_inv = sum(lot.quantity_remaining for lot in b.widget_lots)
+            lines.append("[FINANCIAL POSITION]")
+            lines.append(f"  Cash on hand: ${b.cash:,.2f}")
+            lines.append(f"  Starting cash: ${b.starting_cash:,.2f}")
+            lines.append(
+                f"  Net profit realized: ${realized:,.2f}  "
+                f"({'up' if realized >= 0 else 'DOWN'} from start)"
+            )
+            lines.append(f"  Widgets in inventory: {widget_inv}")
+            lines.append(f"  Days remaining: {days_remaining}")
+            return {"position_text": "\n".join(lines)}
+
+        return None
+
     # ── Offer ID resolution ───────────────────────────────────────────────────
 
     def resolve_offer_id(self, offer_id_or_prefix: str) -> tuple[str | None, str | None]:

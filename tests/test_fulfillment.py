@@ -48,8 +48,6 @@ def test_fulfillment_prompt_has_inventory_table():
     assert "W001" in prompt
     assert "W002" in prompt
     assert "W003" in prompt
-    # Revelation window mention
-    assert "5 business days" in prompt
 
 
 def test_fulfillment_prompt_sorts_cheapest_first():

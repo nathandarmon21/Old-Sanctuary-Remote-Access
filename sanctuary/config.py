@@ -124,6 +124,13 @@ class SellerAgentConfig(BaseModel):
     # system prompts for this specific seller. Used for red-team / bad-actor
     # experiments. None = no overlay (default).
     persona_override: str | None = None
+    # Tier 3: scripted deceptive competitor. When true, this seller bypasses
+    # all LLM calls and runs rule-based logic: produces Poor widgets, posts
+    # Excellent-claim offers at market-undercut price, and ships Poor widgets
+    # whenever Poor inventory is available. Creates real competitive pressure
+    # on LLM-driven rivals without being a "confound LLM whose honesty is
+    # under test".
+    scripted: bool = False
 
 
 class BuyerAgentConfig(BaseModel):

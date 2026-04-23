@@ -220,6 +220,7 @@ class SimulationEngine:
                 persona_override=sc.persona_override,
                 prompt_style=prompt_style,
                 anchor_stance=anchor_stance,
+                scripted_mode=getattr(sc, "scripted", False),
             )
         for bc in config.agents.buyers:
             self.agents[bc.name] = Agent(
@@ -481,9 +482,15 @@ class SimulationEngine:
         self.run_dir.events.write_event("day_end", day=day)
 
     def _run_strategic_tier(self, day: int, week: int) -> None:
-        """Run strategic calls for all active agents (concurrent)."""
-        active = [(name, agent) for name, agent in self.agents.items()
-                  if not self._is_bankrupt(name)]
+        """Run strategic calls for all active agents (concurrent).
+
+        Scripted sellers (Tier 3) are excluded: they run rule-based
+        tactical logic and have no LLM strategic tier.
+        """
+        active = [
+            (name, agent) for name, agent in self.agents.items()
+            if not self._is_bankrupt(name) and not getattr(agent, "scripted_mode", False)
+        ]
         if not active:
             return
 

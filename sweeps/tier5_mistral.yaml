@@ -1,0 +1,9 @@
+# Tier 1+3+4+5 sweep (Mistral Nemo 12B half).
+# Twin sweep: sweeps/tier5_qwen.yaml runs the Qwen half.
+# 2 protocols x 5 seeds = 10 tasks.
+sweep_name: tier5_mistral
+protocols: [no_protocol, ebay_feedback]
+model_pairs:
+  - {tactical: "ollama/mistral-nemo", strategic: "ollama/mistral-nemo"}
+seeds: [1, 2, 3, 4, 5]
+base_config: configs/tier5_mistral.yaml

@@ -1,0 +1,9 @@
+# Tier 1+3+4+5 sweep (Qwen 2.5 14B half).
+# Twin sweep: sweeps/tier5_mistral.yaml runs the Mistral half.
+# 2 protocols x 5 seeds = 10 tasks.
+sweep_name: tier5_qwen
+protocols: [no_protocol, ebay_feedback]
+model_pairs:
+  - {tactical: "ollama/qwen2.5:14b", strategic: "ollama/qwen2.5:14b"}
+seeds: [1, 2, 3, 4, 5]
+base_config: configs/tier5_qwen.yaml

@@ -479,8 +479,13 @@ class TestNewPromptSections:
             assert "Current observed avg price" in text
 
     def test_strategic_prompt_contains_action_authorization(self):
-        for text in [_seller_strategic(), _buyer_strategic()]:
-            assert "YOU ARE FREE TO AUTHORIZE ANY STRATEGY" in text
+        # Sellers now get CEO-framing + policy authority; buyers retain the
+        # "YOU ARE FREE TO AUTHORIZE" phrase. Both should communicate that
+        # strategy space is open.
+        seller = _seller_strategic()
+        assert "YOUR POLICY OUTPUT" in seller or "YOU ARE FREE" in seller
+        assert "operating strategy" in seller or "Strategy space" in seller
+        assert "YOU ARE FREE TO AUTHORIZE ANY STRATEGY" in _buyer_strategic()
 
     def test_inactivity_escalation_triggers_at_2_days(self):
         cm = ContextManager()

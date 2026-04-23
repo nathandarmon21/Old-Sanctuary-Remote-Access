@@ -137,6 +137,7 @@ class Agent:
         persona_override: str | None = None,
         prompt_style: str = "full",
         anchor_stance: str = "honest",
+        scripted_mode: bool = False,
     ) -> None:
         if role not in ("seller", "buyer"):
             raise ValueError(f"role must be 'seller' or 'buyer', got {role!r}")
@@ -153,6 +154,7 @@ class Agent:
         self.persona_override = persona_override
         self.prompt_style = prompt_style
         self.anchor_stance = anchor_stance
+        self.scripted_mode = scripted_mode
 
         # Separate conversation histories per tier
         self.tactical_history: list[dict[str, str]] = []
@@ -191,6 +193,39 @@ class Agent:
         that many widgets of that quality. On parse failure, we
         fail-safe to claimed_quality.
         """
+        # Tier 3: scripted-competitor fulfillment always ships the
+        # lowest-cost available widgets of any quality. If `claimed_quality`
+        # is "Excellent" and Poor widgets exist, it will ship Poor (deception
+        # at ship time against an honest claim). If only Excellent widgets
+        # are available, it ships Excellent.
+        if self.scripted_mode:
+            picks: list[str] = []
+            # Prefer cheapest-first regardless of quality
+            sorted_w = sorted(
+                widget_instances,
+                key=lambda w: (w.production_cost, w.day_produced),
+            )
+            chosen_quality = None
+            for w in sorted_w:
+                if len(picks) >= quantity:
+                    break
+                if chosen_quality is None:
+                    chosen_quality = w.quality
+                if w.quality == chosen_quality:
+                    picks.append(w.id)
+            # If we could not fill the order, fall back to any widgets
+            if len(picks) < quantity:
+                for w in widget_instances:
+                    if w.id in picks:
+                        continue
+                    if len(picks) >= quantity:
+                        break
+                    picks.append(w.id)
+                    # quality may shift; use final-quality of added item
+            final_q = chosen_quality or claimed_quality
+            self.fulfillment_call_count += 1
+            return final_q, picks, "[scripted] ship cheapest available"
+
         from sanctuary.fulfillment import (
             build_fulfillment_prompt,
             parse_fulfillment_response,
@@ -381,6 +416,9 @@ class Agent:
 
         Returns (TacticalActions, ModelResponse) for execution and logging.
         """
+        if self.scripted_mode and self.is_seller:
+            return self._scripted_seller_tactical(day, market)
+
         system_prompt = self._build_tactical_system_prompt(
             day=day,
             market=market,
@@ -489,6 +527,72 @@ class Agent:
         actions = _parse_tactical_actions(response.completion, agent_role=self.role)
         return actions, response
 
+    # ── Scripted competitor (Tier 3) ─────────────────────────────────────────
+
+    def _scripted_seller_tactical(
+        self, day: int, market: MarketState,
+    ) -> tuple[TacticalActions, ModelResponse]:
+        """Rule-based tactical behavior for the scripted deceptive seller.
+
+        Goals of the script:
+          - Produce 1 Poor widget per day (the cheapest option)
+          - Place 1 daily offer claiming Excellent at a competitive price
+          - No messages, no factory investment, no coalition behavior
+          - Undercuts current market average by $1 when data exists
+
+        Combined with the scripted fulfillment branch above (always ship the
+        cheapest available widget), this agent claims Excellent and ships
+        Poor whenever Poor inventory exists.
+        """
+        actions = TacticalActions()
+        seller = market.sellers.get(self.name)
+        stub_response = ModelResponse(
+            completion="[scripted] stub", model="scripted",
+            provider="scripted",
+            prompt_tokens=0, completion_tokens=0, total_tokens=0,
+            latency_seconds=0.0,
+        )
+        if seller is None or seller.bankrupt:
+            return actions, stub_response
+
+        actions.produce_poor = 1
+        actions.produce_excellent = 0
+        actions.build_factory = False
+
+        recent = [tx for tx in market.transactions if tx.claimed_quality == "Excellent"]
+        if recent:
+            market_avg = sum(tx.price_per_unit for tx in recent) / len(recent)
+            price = max(32.0, round(market_avg - 1.0, 2))
+        else:
+            price = 44.0
+
+        my_offer_buyers = {
+            o.buyer for o in market.pending_offers.values()
+            if o.seller == self.name and o.status == "pending"
+        }
+        eligible_buyers = [
+            name for name, b in market.buyers.items()
+            if not b.bankrupt and name not in my_offer_buyers
+        ]
+
+        total_inv = sum(seller.inventory.values())
+        if eligible_buyers and total_inv >= 1:
+            buyer_target = eligible_buyers[day % len(eligible_buyers)]
+            actions.seller_offers.append(ParsedOffer(
+                to=buyer_target, qty=1, claimed_quality="Excellent",
+                price_per_unit=price,
+            ))
+
+        self.tactical_call_count += 1
+        return actions, ModelResponse(
+            completion=(
+                f"[scripted] produce 1 Poor, offer 1 Excellent @ ${price:.2f}"
+            ),
+            model="scripted", provider="scripted",
+            prompt_tokens=0, completion_tokens=0, total_tokens=0,
+            latency_seconds=0.0,
+        )
+
     def sub_round_call(
         self,
         day: int,
@@ -579,6 +683,10 @@ class Agent:
                 build_seller_strategic_system,
             )
 
+        # Tier 5: compute competitive scorecard and financial position for prompt injection
+        scorecard = market.build_competitive_scorecard(self.name, day)
+        financial = market.build_financial_position(self.name, day, self.days_total)
+
         if self.is_seller:
             kwargs = dict(
                 company_name=self.name,
@@ -604,6 +712,8 @@ class Agent:
             )
             if self.prompt_style != "simple":
                 kwargs["anchor_stance"] = self.anchor_stance
+                kwargs["competitive_scorecard"] = scorecard
+                kwargs["financial_position"] = financial
             base = build_seller_strategic_system(**kwargs)
         else:
             from sanctuary.economics import (
@@ -612,7 +722,7 @@ class Agent:
                 PREMIUM_GOODS_PRICE as _pgp,
                 STANDARD_GOODS_PRICE as _sgp,
             )
-            base = build_buyer_strategic_system(
+            b_kwargs = dict(
                 company_name=self.name,
                 days_total=self.days_total,
                 day=day,
@@ -627,6 +737,10 @@ class Agent:
                 buyer_names=self.buyer_names,
                 protocol_rules=protocol_context,
             )
+            if self.prompt_style != "simple":
+                b_kwargs["competitive_scorecard"] = scorecard
+                b_kwargs["financial_position"] = financial
+            base = build_buyer_strategic_system(**b_kwargs)
         if self.persona_override:
             return self._apply_persona_override(base)
         return base
