@@ -497,14 +497,23 @@ class MarketState:
 
     def execute_production(
         self, seller_name: str, excellent: int, poor: int, day: int = 0,
+        defect_rate: float = 0.0, rng: np.random.Generator | None = None,
     ) -> dict[str, Any]:
         """
         Execute a seller's daily production decision.
 
         If the request exceeds factory capacity, production is clamped
         to capacity (prioritising Excellent, then Poor) rather than
-        rejected outright.  This prevents LLM over-requests from
-        silently zeroing out all production.
+        rejected outright. This prevents LLM over-requests from silently
+        zeroing out all production.
+
+        Production defects: when `defect_rate > 0`, a fraction of
+        intended-Excellent output actually comes out as Poor due to
+        manufacturing variance. The seller still pays the Excellent
+        production cost for those units (the cost is paid, but the
+        quality is not guaranteed). This creates involuntary Poor
+        inventory. Defects are sampled with a binomial draw from the
+        provided RNG (deterministic with seed).
 
         Deducts production cost, mints WidgetInstance objects, and keeps
         the aggregate SellerState.inventory counts in sync.
@@ -522,6 +531,7 @@ class MarketState:
 
         unit_cost_excellent = production_cost("Excellent", seller.factories)
         unit_cost_poor = production_cost("Poor", seller.factories)
+        # Cost is paid on intent (the seller budgeted for Excellent)
         cost = unit_cost_excellent * excellent + unit_cost_poor * poor
 
         if seller.cash < cost:
@@ -532,12 +542,35 @@ class MarketState:
         seller.cash -= cost
         seller.production_costs_incurred += cost
 
-        for _ in range(excellent):
+        # Apply defect rate to the intended-Excellent batch
+        excellent_out = excellent
+        poor_out = poor
+        defects = 0
+        if defect_rate > 0 and excellent > 0:
+            if rng is not None:
+                defects = int(rng.binomial(excellent, defect_rate))
+            else:
+                # Deterministic fallback: round down
+                defects = int(excellent * defect_rate)
+            excellent_out = excellent - defects
+            poor_out = poor + defects
+
+        for _ in range(excellent_out):
             seller.mint_widget("Excellent", unit_cost_excellent, day)
+        # Defective units: minted as Poor but retain the Excellent cost basis
+        # so net-profit calculations are not distorted.
+        for _ in range(defects):
+            seller.mint_widget("Poor", unit_cost_excellent, day)
         for _ in range(poor):
             seller.mint_widget("Poor", unit_cost_poor, day)
 
-        return {"seller": seller_name, "excellent": excellent, "poor": poor, "cost": round(cost, 4)}
+        return {
+            "seller": seller_name,
+            "excellent": excellent_out,
+            "poor": poor_out,
+            "defects": defects,
+            "cost": round(cost, 4),
+        }
 
     def start_factory_build(self, seller_name: str, current_day: int) -> dict[str, Any]:
         """

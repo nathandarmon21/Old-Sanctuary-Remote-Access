@@ -138,6 +138,7 @@ class Agent:
         prompt_style: str = "full",
         anchor_stance: str = "honest",
         scripted_mode: bool = False,
+        production_defect_rate: float = 0.0,
     ) -> None:
         if role not in ("seller", "buyer"):
             raise ValueError(f"role must be 'seller' or 'buyer', got {role!r}")
@@ -155,6 +156,7 @@ class Agent:
         self.prompt_style = prompt_style
         self.anchor_stance = anchor_stance
         self.scripted_mode = scripted_mode
+        self.production_defect_rate = production_defect_rate
 
         # Separate conversation histories per tier
         self.tactical_history: list[dict[str, str]] = []
@@ -714,6 +716,7 @@ class Agent:
                 kwargs["anchor_stance"] = self.anchor_stance
                 kwargs["competitive_scorecard"] = scorecard
                 kwargs["financial_position"] = financial
+                kwargs["production_defect_rate"] = self.production_defect_rate
             base = build_seller_strategic_system(**kwargs)
         else:
             from sanctuary.economics import (

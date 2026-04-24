@@ -221,6 +221,7 @@ class SimulationEngine:
                 prompt_style=prompt_style,
                 anchor_stance=anchor_stance,
                 scripted_mode=getattr(sc, "scripted", False),
+                production_defect_rate=float(getattr(config.economics, "production_defect_rate", 0.0) or 0.0),
             )
         for bc in config.agents.buyers:
             self.agents[bc.name] = Agent(
@@ -813,6 +814,8 @@ class SimulationEngine:
                     result = self.market.execute_production(
                         name, excellent=actions.produce_excellent, poor=actions.produce_poor,
                         day=day,
+                        defect_rate=float(getattr(self.config.economics, "production_defect_rate", 0.0) or 0.0),
+                        rng=self.rng,
                     )
                     self.run_dir.events.write_event("production", day=day, **result)
                     self._curr_outcomes[name].append(

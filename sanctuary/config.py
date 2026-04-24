@@ -104,6 +104,11 @@ class EconomicsConfig(BaseModel):
     production_cost_excellent: float | None = None  # default 30.0
     production_cost_poor: float | None = None  # default 20.0
     anonymity_identity_churn_days: int | None = None  # None = disabled
+    # Production defect rate: fraction of intended-Excellent output that comes
+    # out as Poor due to manufacturing variance. Creates involuntary Poor
+    # inventory so sellers must decide whether to claim-sell honestly or
+    # pass Poor off as Excellent. 0.0 = perfect yield (legacy default).
+    production_defect_rate: float = 0.0
 
     @field_validator("seller_starting_cash", mode="before")
     @classmethod
