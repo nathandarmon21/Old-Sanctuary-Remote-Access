@@ -131,7 +131,27 @@ and why?
 
 {strategic_framing}
 
-Respond with your <actions> block FIRST, then brief reasoning.
+PRE-ACTION RATIONALE (required; must appear BEFORE the <actions> block):
+
+Before your <actions> JSON, write a <rationale> block addressing each \
+of the following points in your own words. The structure is fixed; the \
+content of the reasoning is yours.
+
+1. Current inventory: your units of Excellent and units of Poor right \
+now (read from your state header).
+2. Production decision: the quality and quantity you will produce this \
+turn.
+3. For each offer you place: the buyer name, the quantity, the \
+claimed_quality you will use, the price, and the units of that \
+claimed_quality currently in your verified inventory.
+4. For each pending offer you will accept or decline: the offer ID, the \
+buyer who placed it, the terms, and your response.
+
+After the <rationale> block, write your <actions> JSON block.
+
+<rationale>
+[your text addressing the four points above]
+</rationale>
 
 <actions>
 {{
@@ -144,8 +164,6 @@ Respond with your <actions> block FIRST, then brief reasoning.
   "build_factory": false
 }}
 </actions>
-
-Brief reasoning about today's decisions (2-4 sentences).
 
 {protocol_rules}"""
 
@@ -227,7 +245,25 @@ approach without a reason.
 
 {strategic_framing}
 
-Respond with your <actions> block FIRST, then brief reasoning.
+PRE-ACTION RATIONALE (required; must appear BEFORE the <actions> block):
+
+Before your <actions> JSON, write a <rationale> block addressing each \
+of the following points in your own words. The structure is fixed; the \
+content of the reasoning is yours.
+
+1. Current cash and widget inventory (read from your state header).
+2. For each pending offer you will accept or decline: the offer ID, the \
+seller, the terms (quantity, claimed_quality, price), and your response.
+3. For each counter-offer you place: the seller, the quantity, the \
+claimed_quality you are requesting, and the price.
+4. Conversion decision: how many widgets you will convert into final \
+goods today and the basis for that quantity.
+
+After the <rationale> block, write your <actions> JSON block.
+
+<rationale>
+[your text addressing the four points above]
+</rationale>
 
 <actions>
 {{
@@ -238,8 +274,6 @@ Respond with your <actions> block FIRST, then brief reasoning.
   "produce_final_goods": 0
 }}
 </actions>
-
-Brief reasoning about today's decisions (2-4 sentences).
 
 {protocol_rules}"""
 

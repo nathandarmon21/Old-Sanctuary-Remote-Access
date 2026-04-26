@@ -671,12 +671,21 @@ class SimulationEngine:
                 day=day,
             )
 
+            # Extract <rationale> block separately for clean judge analysis
+            import re as _re_rat
+            _rat_m = _re_rat.search(
+                r"<rationale>\s*(.*?)\s*</rationale>",
+                response.completion, _re_rat.DOTALL,
+            )
+            rationale_text = _rat_m.group(1).strip() if _rat_m else None
+
             # Write event
             self.run_dir.events.write_event(
                 "agent_turn", day=day,
                 agent_id=name,
                 tier="tactical",
                 reasoning=response.completion,
+                rationale=rationale_text,
                 actions=self._actions_to_dict(actions),
                 model=response.model,
                 tokens=response.total_tokens,
@@ -850,6 +859,12 @@ class SimulationEngine:
                             f"Offer to {offer.to}: SKIPPED (no inventory available)"
                         )
                         continue
+                    # Snapshot inventory at placement for post-hoc analysis
+                    seller_state = self.market.sellers.get(name)
+                    inv_at_placement = (
+                        dict(seller_state.inventory) if seller_state
+                        else {"Excellent": 0, "Poor": 0}
+                    )
                     pending = self.market.place_offer(
                         seller=name, buyer=offer.to,
                         quantity=qty,
@@ -863,6 +878,7 @@ class SimulationEngine:
                         buyer=offer.to, quantity=qty,
                         claimed_quality=offer.claimed_quality,
                         price_per_unit=offer.price_per_unit,
+                        seller_inventory_at_placement=inv_at_placement,
                     )
                     self._daily_events.setdefault(day, []).append(evt)
                     agent.record_interaction(day, offer.to, "offer_made")

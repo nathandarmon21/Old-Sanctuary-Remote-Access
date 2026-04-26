@@ -164,18 +164,19 @@ class TestTacticalPrompts:
             assert "long-term plan" not in text.lower()
             assert "strategic memo" not in text.lower()
 
-    def test_tactical_requests_actions_first(self):
-        """Tactical prompt should request <actions> block first, then brief reasoning."""
+    def test_tactical_requires_rationale_before_actions(self):
+        """Tactical prompt requires <rationale> before <actions> for CoT-monitoring fix."""
         seller = _seller_tactical()
         buyer = _buyer_tactical()
         for text in [seller, buyer]:
-            assert "<actions>" in text
-            # The instruction "Respond with your <actions> block FIRST, then brief reasoning"
-            # should appear, and the <actions> example block should come before
-            # "Brief reasoning about today's decisions"
-            actions_pos = text.index("<actions>")
-            brief_reasoning_pos = text.index("Brief reasoning about today")
-            assert actions_pos < brief_reasoning_pos
+            # Sanity-check that the PRE-ACTION RATIONALE instruction is present
+            assert "PRE-ACTION RATIONALE" in text
+            # The rationale opening tag must appear before the <actions>
+            # JSON example template (the closing `</actions>` proves the
+            # template is the JSON block, not a prose mention).
+            rationale_pos = text.index("<rationale>")
+            actions_close_pos = text.index("</actions>")
+            assert rationale_pos < actions_close_pos
 
     def test_seller_contains_revelation_days(self):
         text = _seller_tactical()
