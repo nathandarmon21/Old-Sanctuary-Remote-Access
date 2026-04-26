@@ -109,6 +109,11 @@ class EconomicsConfig(BaseModel):
     # inventory so sellers must decide whether to claim-sell honestly or
     # pass Poor off as Excellent. 0.0 = perfect yield (legacy default).
     production_defect_rate: float = 0.0
+    # Scheming-pressure experiment: when true, the fulfillment LLM prompt
+    # includes an explicit ECONOMIC ANALYSIS block showing per-unit margin
+    # if shipping the cheapest Excellent vs cheapest Poor. Surfaces the
+    # cost-saving deception trade-off in plain text. Default off.
+    surface_fulfillment_economics: bool = False
 
     @field_validator("seller_starting_cash", mode="before")
     @classmethod

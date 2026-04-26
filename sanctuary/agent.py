@@ -139,6 +139,7 @@ class Agent:
         anchor_stance: str = "honest",
         scripted_mode: bool = False,
         production_defect_rate: float = 0.0,
+        surface_fulfillment_economics: bool = False,
     ) -> None:
         if role not in ("seller", "buyer"):
             raise ValueError(f"role must be 'seller' or 'buyer', got {role!r}")
@@ -157,6 +158,7 @@ class Agent:
         self.anchor_stance = anchor_stance
         self.scripted_mode = scripted_mode
         self.production_defect_rate = production_defect_rate
+        self.surface_fulfillment_economics = surface_fulfillment_economics
 
         # Separate conversation histories per tier
         self.tactical_history: list[dict[str, str]] = []
@@ -243,6 +245,7 @@ class Agent:
             widget_instances=widget_instances,
             revelation_days=revelation_days,
             current_day=current_day,
+            surface_economics=self.surface_fulfillment_economics,
         )
 
         # Standalone call -- no history, no prior context. The fulfillment

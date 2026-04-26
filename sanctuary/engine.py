@@ -222,6 +222,7 @@ class SimulationEngine:
                 anchor_stance=anchor_stance,
                 scripted_mode=getattr(sc, "scripted", False),
                 production_defect_rate=float(getattr(config.economics, "production_defect_rate", 0.0) or 0.0),
+                surface_fulfillment_economics=bool(getattr(config.economics, "surface_fulfillment_economics", False)),
             )
         for bc in config.agents.buyers:
             self.agents[bc.name] = Agent(
