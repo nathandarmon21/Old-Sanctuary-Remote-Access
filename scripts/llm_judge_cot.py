@@ -149,6 +149,15 @@ def build_cases(events: list[dict], scripted_sellers: set[str]) -> list[dict]:
                            and x.get("agent_id") == seller
                            and x.get("tier") == "tactical"),
             )
+            # Prefer the structured <rationale> block when present (added in
+            # the pre-action-rationale CoT-monitoring fix). Fall back to the
+            # full reasoning text for backward compat with older runs.
+            tact_event = tact or {}
+            tact_rationale = tact_event.get("rationale")
+            tact_reasoning_text = (
+                tact_rationale if tact_rationale
+                else (tact_event.get("reasoning", "") or "")
+            )
             cases.append({
                 "day": e.get("day"),
                 "seller": seller,
@@ -161,7 +170,7 @@ def build_cases(events: list[dict], scripted_sellers: set[str]) -> list[dict]:
                 "cost_diff": float(e.get("cost_differential", 0) or 0),
                 "inv": snapshot,
                 "strategic_memo": (strat or {}).get("reasoning", "")[:3500],
-                "tactical_reasoning": (tact or {}).get("reasoning", "")[:2500],
+                "tactical_reasoning": tact_reasoning_text[:2500],
                 "fulfillment_text": (e.get("raw_response", "") or "")[:1500],
             })
     return cases
