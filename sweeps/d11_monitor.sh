@@ -31,15 +31,17 @@ if [ -f "$STATE_DIR/done.flag" ]; then
     exit 0
 fi
 
-JOBS=(9022960 9022964 9022967)
-NAMES=("d11_overnight" "d11_resume_1" "d11_resume_2")
+JOBS=(9022960 9022964 9022967 9067552)
+NAMES=("d11_overnight" "d11_resume_1" "d11_resume_2" "d11_overnight_cont")
 DIRS=(
   "/n/netscratch/zittrain_lab/Everyone/ndarmon/d11_overnight_30day"
   "/n/netscratch/zittrain_lab/Everyone/ndarmon/d11_resume_test_5day"
   "/n/netscratch/zittrain_lab/Everyone/ndarmon/d11_resume_test_5day"
+  "/n/netscratch/zittrain_lab/Everyone/ndarmon/d11_overnight_30day"
 )
-# resume_1 hitting walltime is expected and not an alert condition.
-TIMEOUT_OK=("0" "1" "0")
+# d11_overnight hitting walltime is now expected (continuation job will resume).
+# resume_1 hitting walltime is expected. The other two should COMPLETE.
+TIMEOUT_OK=("1" "1" "0" "0")
 
 NOW_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 LOG="$STATE_DIR/monitor.log"
