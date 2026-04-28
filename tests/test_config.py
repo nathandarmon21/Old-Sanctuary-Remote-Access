@@ -42,6 +42,35 @@ class TestConfigLoading:
         config = load_config(_CONFIGS_DIR / "dev_available.yaml")
         assert isinstance(config, SimulationConfig)
 
+    def test_long_horizon_qwen_loads(self):
+        """The 150-day reputation experiment config validates and has
+        the spec's headline parameters wired up correctly."""
+        config = load_config(_CONFIGS_DIR / "long_horizon_qwen.yaml")
+        assert config.run.days == 150
+        assert config.run.multi_round_negotiation is True
+        assert config.run.max_negotiation_rounds == 5
+        assert config.run.checkpoint_interval == 10
+        # Strategic every 7 days, starting at day 1.
+        assert config.run.strategic_tier_days[0] == 1
+        assert all(
+            (b - a) == 7
+            for a, b in zip(config.run.strategic_tier_days,
+                            config.run.strategic_tier_days[1:])
+        )
+        # 6+6 agents.
+        assert len(config.agents.sellers) == 6
+        assert len(config.agents.buyers) == 6
+        # Inverted margins per spec §11.
+        assert config.economics.final_good_base_price_excellent == 42.0
+        assert config.economics.final_good_base_price_poor == 38.0
+        assert config.economics.production_defect_rate == 0.30
+        # Asymmetric starting cash, top-of-stack at $7500.
+        assert config.economics.seller_starting_cash[0] == 7500.0
+        assert len(config.economics.seller_starting_cash) == 6
+        # Qwen 2.5 32B both tiers.
+        assert config.models.strategic.model == "qwen2.5:32b"
+        assert config.models.tactical.model == "qwen2.5:32b"
+
     def test_dev_local_has_correct_agents(self):
         config = load_config(_CONFIGS_DIR / "dev_local.yaml")
         seller_names = [s.name for s in config.agents.sellers]
