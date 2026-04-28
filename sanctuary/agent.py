@@ -373,12 +373,12 @@ class Agent:
         self.history.append({"role": "user", "content": user_content})
         self.strategic_history.append({"role": "user", "content": user_content})
 
-        # Window history for strategic calls.  Keep more context than
-        # tactical (strategic runs less often and benefits from seeing
-        # prior memos), but still bounded to avoid context overflow and
-        # the slowdown from processing huge prompts.
-        max_strategic_history = 30
-        windowed = self.history[-max_strategic_history:]
+        # Window strategic-tier history to last ~10 strategic exchanges
+        # (spec §7: shrink from a 30-entry mixed window to a 10-memo
+        # strategic-only window for context budget). Each strategic call
+        # adds one user + one assistant entry, so 20 entries ≈ 10 memos.
+        max_strategic_history = 20
+        windowed = self.strategic_history[-max_strategic_history:]
 
         response = self._strategic_provider.complete(
             system_prompt=system_prompt,
@@ -415,6 +415,9 @@ class Agent:
         prev_outcomes: list[str] | None = None,
         protocol_context: str = "",
         inbox: list[dict[str, Any]] | None = None,
+        prev_day_summary: str = "",
+        metric_ledger: str = "",
+        strategic_digest: str = "",
     ) -> tuple[TacticalActions, ModelResponse]:
         """
         Fire the tactical-tier LLM call for this agent.
@@ -489,6 +492,16 @@ class Agent:
         if outcomes:
             formatted = format_prev_outcomes(outcomes)
             sections.append(f"[YOUR PREVIOUS TURN OUTCOMES]\n{formatted}")
+
+        # Memory consolidation injections (spec §7). Each section is
+        # gated on non-empty content so single-day or pre-D4 runs are
+        # unaffected.
+        if prev_day_summary:
+            sections.append(f"[YESTERDAY'S SUMMARY]\n{prev_day_summary}")
+        if metric_ledger:
+            sections.append(f"[YOUR PERFORMANCE LEDGER]\n{metric_ledger}")
+        if strategic_digest:
+            sections.append(f"[RECENT STRATEGIC MEMOS]\n{strategic_digest}")
 
         # Messages received (from previous day)
         received = inbox or []

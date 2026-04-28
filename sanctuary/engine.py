@@ -47,6 +47,11 @@ from sanctuary.economics import (
     production_cost,
 )
 from sanctuary.market import MarketState, build_initial_market
+from sanctuary.memory import (
+    build_metric_ledger,
+    build_per_day_summary,
+    digest_recent_memos,
+)
 from sanctuary.messaging import InactivityTracker, MessageRouter
 from sanctuary.protocols.base import Protocol
 from sanctuary.protocols.factory import create_protocol
@@ -264,6 +269,14 @@ class SimulationEngine:
         self._curr_outcomes: dict[str, list[str]] = {n: [] for n in self.agents}
         self._daily_snapshots: list[dict[str, Any]] = []
         self._daily_events: dict[int, list[dict[str, Any]]] = {}
+        # Per-agent per-day deterministic recap, generated at end of day,
+        # injected into next day's tactical context as "[YESTERDAY'S SUMMARY]".
+        self._daily_summaries: dict[str, dict[int, str]] = {
+            n: {} for n in (
+                [sc.name for sc in config.agents.sellers]
+                + [bc.name for bc in config.agents.buyers]
+            )
+        }
         self._transactions_today: set[str] = set()  # agents who transacted today
         self._prev_day_messages: dict[str, list[dict[str, str]]] = {
             n: [] for n in self.agents
@@ -647,6 +660,14 @@ class SimulationEngine:
         snapshot = self.market.daily_snapshot()
         self._daily_snapshots.append(snapshot)
 
+        # 13b. Per-agent per-day summary (memory consolidation, spec §7).
+        # Generated from this day's logged events; deterministic.
+        day_events = self._daily_events.get(day, [])
+        for name in self.agents:
+            self._daily_summaries[name][day] = build_per_day_summary(
+                name=name, day=day, daily_events=day_events,
+            )
+
         # 14. Post-trade bankruptcy check
         bankruptcies2 = self.market.check_bankruptcies()
         for name in bankruptcies2:
@@ -775,6 +796,7 @@ class SimulationEngine:
         # Pre-compute per-agent data
         pre: dict[str, dict[str, Any]] = {}
         for name, agent in active:
+            mem = self._memory_inputs_for(name, day)
             pre[name] = {
                 "inactivity_days": self.inactivity.consecutive_inactive_days(name),
                 "pending_for_me": self.market.offers_for_buyer(name) if agent.is_buyer else [],
@@ -782,6 +804,9 @@ class SimulationEngine:
                 "prev_outcomes": list(self._prev_outcomes.get(name, [])),
                 "protocol_context": self.protocol.get_agent_context(name, self.agents, day),
                 "inbox": list(self._prev_day_messages.get(name, [])),
+                "prev_day_summary": mem["prev_day_summary"],
+                "metric_ledger": mem["metric_ledger"],
+                "strategic_digest": mem["strategic_digest"],
             }
 
         def _call(pair: tuple[str, Agent]) -> tuple[str, Any]:
@@ -798,6 +823,9 @@ class SimulationEngine:
                         prev_outcomes=pre[name]["prev_outcomes"],
                         protocol_context=pre[name]["protocol_context"],
                         inbox=pre[name]["inbox"],
+                        prev_day_summary=pre[name]["prev_day_summary"],
+                        metric_ledger=pre[name]["metric_ledger"],
+                        strategic_digest=pre[name]["strategic_digest"],
                     )
                 actions, response = _retry_llm_call(_do, name)
                 return name, ("ok", actions, response)
@@ -1025,6 +1053,7 @@ class SimulationEngine:
                 wm = outcomes_watermark[name]
                 outcomes_input = self._curr_outcomes.get(name, [])[wm:]
 
+            mem = self._memory_inputs_for(name, day)
             pre[name] = {
                 "inactivity_days": self.inactivity.consecutive_inactive_days(name),
                 "pending_for_me": (
@@ -1038,6 +1067,9 @@ class SimulationEngine:
                     name, self.agents, day,
                 ),
                 "inbox": list(round_inbox[name]),
+                "prev_day_summary": mem["prev_day_summary"],
+                "metric_ledger": mem["metric_ledger"],
+                "strategic_digest": mem["strategic_digest"],
             }
 
         def _call(name: str) -> tuple[str, Any]:
@@ -1054,6 +1086,9 @@ class SimulationEngine:
                         prev_outcomes=pre[name]["prev_outcomes"],
                         protocol_context=pre[name]["protocol_context"],
                         inbox=pre[name]["inbox"],
+                        prev_day_summary=pre[name]["prev_day_summary"],
+                        metric_ledger=pre[name]["metric_ledger"],
+                        strategic_digest=pre[name]["strategic_digest"],
                     )
                 actions, response = _retry_llm_call(_do, name)
                 return name, ("ok", actions, response)
@@ -1601,6 +1636,38 @@ class SimulationEngine:
         if name in self.market.buyers:
             return self.market.buyers[name].bankrupt
         return True
+
+    # ── Memory consolidation helpers (spec §7) ──────────────────────────────
+
+    def _memory_inputs_for(self, name: str, day: int) -> dict[str, str]:
+        """Compute the three memory-consolidation injections for one
+        tactical call: yesterday's summary, the performance ledger, and
+        the strategic-memo digest."""
+        agent = self.agents.get(name)
+        if agent is None:
+            return {"prev_day_summary": "", "metric_ledger": "", "strategic_digest": ""}
+
+        prev_day_summary = self._daily_summaries.get(name, {}).get(day - 1, "")
+
+        is_seller = agent.is_seller
+        state = (
+            self.market.sellers.get(name) if is_seller
+            else self.market.buyers.get(name)
+        )
+        metric_ledger = build_metric_ledger(
+            name=name,
+            is_seller=is_seller,
+            state=state,
+            transactions=self.market.transactions,
+            daily_events=self._daily_events,
+            current_day=day,
+        )
+        strategic_digest = digest_recent_memos(agent.policy_history, k=10)
+        return {
+            "prev_day_summary": prev_day_summary,
+            "metric_ledger": metric_ledger,
+            "strategic_digest": strategic_digest,
+        }
 
     def _build_market_summary(self, day: int) -> str:
         """Build a market summary for strategic prompts."""
