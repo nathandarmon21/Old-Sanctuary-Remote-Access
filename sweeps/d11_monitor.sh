@@ -99,8 +99,10 @@ for i in 0 1 2; do
 
     if [ "$SQ_STATE" = "RUNNING" ]; then
         START_TIME=$(squeue -h -j "$JID" -o "%S" 2>/dev/null | head -1)
-        START_SEC=$(date -u -d "$START_TIME" +%s 2>/dev/null || echo "$(date -u +%s)")
-        NOW_SEC=$(date -u +%s)
+        # SLURM emits %S in the cluster's local timezone. Drop -u so date
+        # interprets it in the same TZ as `date +%s` for a correct delta.
+        START_SEC=$(date -d "$START_TIME" +%s 2>/dev/null || date +%s)
+        NOW_SEC=$(date +%s)
         ELAPSED=$((NOW_SEC - START_SEC))
         echo "  $NAME (job $JID): RUNNING ${ELAPSED}s, events.jsonl=$EV_NOW (was $EV_PREV)" >> "$STATUS"
         if [ "$ELAPSED" -gt 1800 ] && [ "$((EV_NOW - EV_PREV))" -lt 5 ]; then
