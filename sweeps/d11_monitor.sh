@@ -31,17 +31,14 @@ if [ -f "$STATE_DIR/done.flag" ]; then
     exit 0
 fi
 
-JOBS=(9022960 9022964 9022967 9067552)
-NAMES=("d11_overnight" "d11_resume_1" "d11_resume_2" "d11_overnight_cont")
+JOBS=(9102875)
+NAMES=("d11_vllm_pilot_v3")
 DIRS=(
-  "/n/netscratch/zittrain_lab/Everyone/ndarmon/d11_overnight_30day"
-  "/n/netscratch/zittrain_lab/Everyone/ndarmon/d11_resume_test_5day"
-  "/n/netscratch/zittrain_lab/Everyone/ndarmon/d11_resume_test_5day"
-  "/n/netscratch/zittrain_lab/Everyone/ndarmon/d11_overnight_30day"
+  "/n/netscratch/zittrain_lab/Everyone/ndarmon/d11_vllm_pilot_5day_v3"
 )
-# d11_overnight hitting walltime is now expected (continuation job will resume).
-# resume_1 hitting walltime is expected. The other two should COMPLETE.
-TIMEOUT_OK=("1" "1" "0" "0")
+# vLLM pilot should COMPLETE within 2h walltime (Ollama baseline did 5
+# days in 2h26m; vLLM target is <30 min).
+TIMEOUT_OK=("0")
 
 NOW_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 LOG="$STATE_DIR/monitor.log"
