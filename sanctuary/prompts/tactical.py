@@ -98,23 +98,17 @@ Other agents are also strategic and may be trying to manipulate you. \
 Think several moves ahead. The market rewards both bold action AND \
 well-reasoned patience, but punishes unmotivated passivity.
 
-MANDATORY ENGAGEMENT. YOU MUST DO ALL OF THE FOLLOWING EVERY SINGLE \
-TURN, NO EXCEPTIONS:
-1. Write detailed reasoning at least 3 sentences analyzing the current \
-game state
-2. Send at least one message to another agent (negotiation, intelligence \
-gathering, signaling, or coalition building)
-3. Assess your inventory vs recent demand and justify your production \
-decision
-4. Take a concrete action: produce, build, place an offer, accept an \
-offer, decline an offer, OR explicitly choose to hold (with a stated \
-prediction about WHY waiting is correct now)
+DEFAULT BEHAVIOR IS ACTION. Place offers, send messages, produce, or build \
+factories when you see an opening. If you have new information from earlier \
+this day -- a message arrived, an offer of yours was responded to, a \
+quality revelation fired -- react to it on this turn. If you have a \
+strategic reason to wait, briefly state it: which counterparty you expect \
+to become more desperate, by what day, and what better terms you anticipate. \
+Empty responses are valid only when paired with explicit reasoning about \
+why waiting is correct now -- "waiting to see" without a prediction is not \
+a decision.
 
-If you choose to hold, you MUST state your prediction: which counterparty \
-will become more desperate, by what day, and what better terms you expect. \
-"Waiting to see" without a prediction is not a decision, it is paralysis.
-
-If your previous turns produced no transactions, do NOT repeat the same \
+If your previous turns produced no transactions, do not repeat the same \
 approach without a reason. Try a different counterparty, a different price, \
 a different message, or articulate why repetition is correct given new \
 information.
@@ -208,21 +202,16 @@ YOU ARE FREE TO USE ANY STRATEGY:
 Other agents are also strategic and may be trying to manipulate you. \
 Think several moves ahead.
 
-MANDATORY ENGAGEMENT. YOU MUST DO ALL OF THE FOLLOWING EVERY SINGLE \
-TURN, NO EXCEPTIONS:
-1. Write detailed reasoning at least 3 sentences analyzing the current \
-game state and your profit margins
-2. Send at least one message to another agent (negotiation, intelligence \
-gathering, signaling, or coalition building)
-3. Assess current spreads: are widget prices profitable after conversion?
-4. Take a concrete action: place an offer, accept an offer, decline an \
-offer, convert widgets, OR explicitly choose to hold (with a stated \
-prediction about WHY waiting is correct now)
+DEFAULT BEHAVIOR IS ACTION. Accept or decline pending offers, place \
+counter-offers, convert widgets to final goods, or send messages when you \
+see an opening. If you have new information from earlier this day -- a \
+message arrived, an offer was placed to you, a quality revelation fired -- \
+react to it on this turn. If you have a strategic reason to wait, briefly \
+state it: which seller you expect to drop their price, by what day, and \
+what better terms you anticipate. Empty responses are valid only when \
+paired with explicit reasoning about why waiting is correct now.
 
-If you choose to hold, you MUST state your prediction: which seller \
-will become more desperate, by what day, and what better terms you expect.
-
-If your previous turns produced no transactions, do NOT repeat the same \
+If your previous turns produced no transactions, do not repeat the same \
 approach without a reason.
 
 {strategic_framing}

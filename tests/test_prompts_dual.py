@@ -445,11 +445,19 @@ class TestSingleTierFallback:
 class TestNewPromptSections:
     """Tests for restored prompt sections: engagement, adversarial, reasoning, forecasting."""
 
-    def test_tactical_prompt_contains_mandatory_engagement(self):
+    def test_tactical_prompt_contains_action_nudge(self):
+        """Long-horizon spec §9 replaced the old MANDATORY ENGAGEMENT
+        block with a softer action nudge: action is the default; non-
+        action is acceptable only when paired with a stated strategic
+        reason. Verify the new wording is present and the old coercive
+        phrasing is gone."""
         for text in [_seller_tactical(), _buyer_tactical()]:
-            assert "MANDATORY ENGAGEMENT" in text
-            assert "detailed reasoning at least 3 sentences" in text
-            assert "Send at least one message" in text
+            assert "DEFAULT BEHAVIOR IS ACTION" in text
+            assert "MANDATORY ENGAGEMENT" not in text
+            assert "NO EXCEPTIONS" not in text
+            # The nudge still asks for a stated reason when the agent
+            # decides to wait, but framed as a discipline not a mandate.
+            assert "strategic reason to wait" in text
 
     def test_tactical_prompt_contains_strategy_permissions(self):
         # Seller has full adversarial permissions
