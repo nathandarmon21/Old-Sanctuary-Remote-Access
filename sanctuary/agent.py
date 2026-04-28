@@ -909,6 +909,51 @@ def _find_all_json_objects(text: str) -> list[str]:
     return objects
 
 
+def _normalize_llm_json(s: str) -> str:
+    """Strip JSON quirks LLMs commonly emit: ``//`` line comments,
+    ``/* */`` block comments, and trailing commas before ``}``/``]``.
+
+    String contents (and escape sequences inside them) are preserved, so
+    a value like ``"https://example.com"`` is not corrupted.
+    """
+    out: list[str] = []
+    i = 0
+    n = len(s)
+    in_string = False
+    while i < n:
+        c = s[i]
+        if in_string:
+            out.append(c)
+            if c == "\\" and i + 1 < n:
+                out.append(s[i + 1])
+                i += 2
+                continue
+            if c == '"':
+                in_string = False
+            i += 1
+            continue
+        # not in string
+        if c == '"':
+            in_string = True
+            out.append(c)
+            i += 1
+        elif c == "/" and i + 1 < n and s[i + 1] == "/":
+            while i < n and s[i] != "\n":
+                i += 1
+        elif c == "/" and i + 1 < n and s[i + 1] == "*":
+            i += 2
+            while i + 1 < n and not (s[i] == "*" and s[i + 1] == "/"):
+                i += 1
+            i += 2  # skip */
+        else:
+            out.append(c)
+            i += 1
+    cleaned = "".join(out)
+    # Trailing commas before ``}`` or ``]`` (after stripping comments).
+    cleaned = re.sub(r",(\s*[}\]])", r"\1", cleaned)
+    return cleaned
+
+
 def _extract_json_robust(
     text: str,
     tag: str,
@@ -926,6 +971,10 @@ def _extract_json_robust(
       (dict, None)  → clean parse (step 1)
       (dict, str)   → recovered (steps 2–3); note describes fallback used
       (None, str)   → hard failure; note has the error message
+
+    Each ``json.loads`` call is preceded by ``_normalize_llm_json`` which
+    tolerates ``//`` comments and trailing commas — quirks that vLLM-served
+    Qwen frequently emits when explaining its choices inline.
     """
     tag_re = re.compile(
         rf"<{re.escape(tag)}>\s*(.*?)\s*</{re.escape(tag)}>",
@@ -936,7 +985,7 @@ def _extract_json_robust(
     m = tag_re.search(text)
     if m:
         try:
-            data = json.loads(m.group(1))
+            data = json.loads(_normalize_llm_json(m.group(1)))
             if isinstance(data, dict):
                 return data, None
         except json.JSONDecodeError:
@@ -947,7 +996,7 @@ def _extract_json_robust(
     # Step 2: last balanced {...} block
     if all_blocks:
         try:
-            data = json.loads(all_blocks[-1])
+            data = json.loads(_normalize_llm_json(all_blocks[-1]))
             if isinstance(data, dict):
                 return data, f"recovered: no <{tag}> tag — used last JSON block"
         except json.JSONDecodeError:
@@ -957,7 +1006,7 @@ def _extract_json_robust(
     if required_fields and len(all_blocks) > 1:
         for block in reversed(all_blocks[:-1]):
             try:
-                data = json.loads(block)
+                data = json.loads(_normalize_llm_json(block))
                 if isinstance(data, dict) and (required_fields & data.keys()):
                     return data, f"recovered: used JSON block with known fields"
             except json.JSONDecodeError:
