@@ -411,26 +411,27 @@ class SimulationEngine:
             week = (day - 1) // 7 + 1
             self._run_strategic_tier(day, week)
 
-        # 9. Tactical tier
+        # 9-10. Tactical tier. Multi-round mode replaces the legacy
+        # single-tactical-pass + buyer-only sub-rounds with a unified
+        # negotiation loop where each agent may be re-called within a
+        # day in response to messages or offers from earlier rounds.
         router = MessageRouter(day=day)
-        self._run_tactical_tier(day, router)
+        if self.config.run.multi_round_negotiation:
+            self._run_negotiation_rounds(day, router)
+        else:
+            self._run_tactical_tier(day, router)
+            for sub_round in range(1, self.config.run.max_sub_rounds + 1):
+                eligible = [
+                    name for name, agent in self.agents.items()
+                    if agent.is_buyer
+                    and not self.market.buyers.get(name, type("x", (), {"bankrupt": True})()).bankrupt
+                    and self.market.offers_for_buyer(name)
+                ]
+                if not eligible:
+                    break
+                self._run_sub_round(day, sub_round, router, eligible)
 
-        # 10. Sub-rounds
-        for sub_round in range(1, self.config.run.max_sub_rounds + 1):
-            eligible = [
-                name for name, agent in self.agents.items()
-                if agent.is_buyer
-                and not self.market.buyers.get(name, type("x", (), {"bankrupt": True})()).bankrupt
-                and self.market.offers_for_buyer(name)
-            ]
-            if not eligible:
-                break
-            self._run_sub_round(day, sub_round, router, eligible)
-
-        # 11. Log messages and save for next-day delivery
-        next_day_inbox: dict[str, list[dict[str, str]]] = {
-            n: [] for n in self.agents
-        }
+        # 11. Log messages sent today.
         for msg in router.all_messages():
             self.run_dir.events.write_event(
                 "message_sent", day=day,
@@ -439,17 +440,24 @@ class SimulationEngine:
                 public=msg.is_public,
                 body=msg.content,
             )
-            # Deliver to recipient (or all agents for public messages)
-            for name in self.agents:
-                if msg.is_public or msg.recipient == name:
-                    if msg.sender != name:  # don't echo your own messages
-                        tag = "[public]" if msg.is_public else "[private]"
-                        next_day_inbox[name].append({
-                            "from": msg.sender,
-                            "body": msg.content,
-                            "public": msg.is_public,
-                        })
-        self._prev_day_messages = next_day_inbox
+
+        # 11b. Build tomorrow's inbox (legacy path only; the multi-round
+        # path tracks unread inbox state across rounds and has already set
+        # self._prev_day_messages to the leftover-unread state).
+        if not self.config.run.multi_round_negotiation:
+            next_day_inbox: dict[str, list[dict[str, str]]] = {
+                n: [] for n in self.agents
+            }
+            for msg in router.all_messages():
+                for name in self.agents:
+                    if msg.is_public or msg.recipient == name:
+                        if msg.sender != name:
+                            next_day_inbox[name].append({
+                                "from": msg.sender,
+                                "body": msg.content,
+                                "public": msg.is_public,
+                            })
+            self._prev_day_messages = next_day_inbox
 
         # Scan same-role messages for coordination signals
         for msg in router.all_messages():
@@ -725,6 +733,294 @@ class SimulationEngine:
             if has_activity:
                 self.inactivity.mark_active(name)
 
+    def _run_negotiation_rounds(
+        self, day: int, router: MessageRouter,
+    ) -> None:
+        """Multi-round negotiation loop for one day.
+
+        Replaces _run_tactical_tier + _run_sub_round when
+        config.run.multi_round_negotiation is true. Round 1 calls every
+        non-bankrupt agent (matching the legacy tactical tier). Rounds 2..N
+        call only agents with new content since their last call: a non-empty
+        round inbox, a changed pending-offer set as buyer, or a changed
+        pending-offer set as seller.
+
+        Termination conditions (whichever fires first):
+          - hard cap: config.run.max_negotiation_rounds
+          - empty round: a round in which no eligible agent took an action
+          - eligibility set is empty before the round runs
+
+        Within-day messaging: messages sent in round R are routed to
+        recipients' inboxes for round R+1. Any inbox content unread at
+        end of day carries to tomorrow's round 1 via self._prev_day_messages.
+        """
+        round_inbox: dict[str, list[dict[str, Any]]] = {
+            n: list(self._prev_day_messages.get(n, [])) for n in self.agents
+        }
+
+        # Watermarks for change detection between an agent's calls.
+        outcomes_watermark: dict[str, int] = {n: 0 for n in self.agents}
+        seen_buyer_offers: dict[str, set[str]] = {n: set() for n in self.agents}
+        seen_seller_offers: dict[str, set[str]] = {n: set() for n in self.agents}
+        delivered_msg_ids: set[str] = set()
+
+        max_rounds = max(1, self.config.run.max_negotiation_rounds)
+        eligible: list[str] = [n for n in self.agents if not self._is_bankrupt(n)]
+
+        for round_num in range(1, max_rounds + 1):
+            if not eligible:
+                self.run_dir.events.write_event(
+                    "negotiation_round_end", day=day, round=round_num,
+                    reason="no_eligible_agents",
+                )
+                break
+
+            self.run_dir.events.write_event(
+                "negotiation_round_start", day=day, round=round_num,
+                eligible=list(eligible),
+            )
+
+            any_action = self._run_negotiation_round(
+                day=day,
+                round_num=round_num,
+                router=router,
+                eligible_names=list(eligible),
+                round_inbox=round_inbox,
+                outcomes_watermark=outcomes_watermark,
+                seen_buyer_offers=seen_buyer_offers,
+                seen_seller_offers=seen_seller_offers,
+            )
+
+            # Deliver this round's messages to recipients' next-round inboxes.
+            for msg in router.all_messages():
+                if msg.sub_round != round_num:
+                    continue
+                if msg.message_id in delivered_msg_ids:
+                    continue
+                for name in self.agents:
+                    if msg.sender == name:
+                        continue
+                    if msg.is_public or msg.recipient == name:
+                        round_inbox[name].append({
+                            "from": msg.sender,
+                            "body": msg.content,
+                            "public": msg.is_public,
+                        })
+                delivered_msg_ids.add(msg.message_id)
+
+            if not any_action:
+                self.run_dir.events.write_event(
+                    "negotiation_round_end", day=day, round=round_num,
+                    reason="empty_round",
+                )
+                break
+
+            self.run_dir.events.write_event(
+                "negotiation_round_end", day=day, round=round_num,
+                reason="completed",
+            )
+
+            # Compute eligibility for the next round.
+            next_eligible: list[str] = []
+            for name, agent in self.agents.items():
+                if self._is_bankrupt(name):
+                    continue
+                if round_inbox[name]:
+                    next_eligible.append(name)
+                    continue
+                if agent.is_buyer:
+                    cur = {o.offer_id for o in self.market.offers_for_buyer(name)}
+                    if cur != seen_buyer_offers[name]:
+                        next_eligible.append(name)
+                        continue
+                if agent.is_seller:
+                    cur = {o.offer_id for o in self.market.offers_from_seller(name)}
+                    if cur != seen_seller_offers[name]:
+                        next_eligible.append(name)
+                        continue
+            eligible = next_eligible
+
+        # Persist any unread inbox content for tomorrow's round 1.
+        self._prev_day_messages = round_inbox
+
+    def _run_negotiation_round(
+        self,
+        day: int,
+        round_num: int,
+        router: MessageRouter,
+        eligible_names: list[str],
+        round_inbox: dict[str, list[dict[str, Any]]],
+        outcomes_watermark: dict[str, int],
+        seen_buyer_offers: dict[str, set[str]],
+        seen_seller_offers: dict[str, set[str]],
+    ) -> bool:
+        """Run a single negotiation round. Returns True if any agent acted."""
+        # Randomize call order. Determinism comes from the master rng;
+        # we draw a fresh sub-stream so the order varies per round but
+        # is reproducible from the seed.
+        sub_seed = int(self.rng.integers(0, 2**31))
+        local_rng = np.random.default_rng(sub_seed)
+        order = list(eligible_names)
+        local_rng.shuffle(order)
+
+        # Pre-compute per-agent prompt inputs.
+        pre: dict[str, dict[str, Any]] = {}
+        for name in order:
+            agent = self.agents[name]
+            if round_num == 1:
+                outcomes_input = list(self._prev_outcomes.get(name, []))
+            else:
+                wm = outcomes_watermark[name]
+                outcomes_input = self._curr_outcomes.get(name, [])[wm:]
+
+            pre[name] = {
+                "inactivity_days": self.inactivity.consecutive_inactive_days(name),
+                "pending_for_me": (
+                    self.market.offers_for_buyer(name) if agent.is_buyer else []
+                ),
+                "my_pending": (
+                    self.market.offers_from_seller(name) if agent.is_seller else []
+                ),
+                "prev_outcomes": outcomes_input,
+                "protocol_context": self.protocol.get_agent_context(
+                    name, self.agents, day,
+                ),
+                "inbox": list(round_inbox[name]),
+            }
+
+        def _call(name: str) -> tuple[str, Any]:
+            agent = self.agents[name]
+            try:
+                def _do() -> tuple:
+                    return agent.tactical_call(
+                        day=day,
+                        market=self.market,
+                        router=router,
+                        pending_offers_for_me=pre[name]["pending_for_me"],
+                        my_pending_offers=pre[name]["my_pending"],
+                        inactivity_days=pre[name]["inactivity_days"],
+                        prev_outcomes=pre[name]["prev_outcomes"],
+                        protocol_context=pre[name]["protocol_context"],
+                        inbox=pre[name]["inbox"],
+                    )
+                actions, response = _retry_llm_call(_do, name)
+                return name, ("ok", actions, response)
+            except ContextTooLongError as e:
+                raise RuntimeError(f"Context too long for {name}: {e}") from e
+            except Exception as e:
+                return name, ("error", e)
+
+        raw: dict[str, Any] = {}
+        max_workers = min(len(order), self.config.run.max_parallel_llm_calls) or 1
+        with ThreadPoolExecutor(max_workers=max_workers) as ex:
+            future_to_name = {ex.submit(_call, name): name for name in order}
+            for fut in as_completed(future_to_name):
+                _, payload = fut.result()
+                raw[future_to_name[fut]] = payload
+
+        # Apply in randomized round order. Effects of earlier-acting agents
+        # in the same round become visible to later-acting ones via market
+        # state mutations (e.g., offer placements, accepts).
+        any_action = False
+        for name in order:
+            agent = self.agents[name]
+            # Whether or not the call succeeded, mark inbox/outcomes/offers
+            # as "seen at this turn" so we don't re-trigger eligibility on
+            # state that has already been observed.
+            round_inbox[name] = []
+            outcomes_watermark[name] = len(self._curr_outcomes.get(name, []))
+            if agent.is_buyer:
+                seen_buyer_offers[name] = {
+                    o.offer_id for o in pre[name]["pending_for_me"]
+                }
+            if agent.is_seller:
+                seen_seller_offers[name] = {
+                    o.offer_id for o in pre[name]["my_pending"]
+                }
+
+            result = raw[name]
+            if result[0] == "error":
+                self.run_dir.events.write_event(
+                    "provider_error", day=day, agent_id=name,
+                    error=str(result[1]),
+                    tier="negotiation",
+                    round=round_num,
+                )
+                continue
+
+            actions, response = result[1], result[2]
+            self.total_tactical_calls += 1
+            self.total_prompt_tokens += response.prompt_tokens
+            self.total_completion_tokens += response.completion_tokens
+
+            self.run_dir.transcripts.write_tactical_call(
+                agent_id=name,
+                prompt_messages=[],
+                response_text=response.completion,
+                parsed_actions=self._actions_to_dict(actions),
+                timing_seconds=response.latency_seconds,
+                prompt_tokens=response.prompt_tokens,
+                completion_tokens=response.completion_tokens,
+                model=response.model,
+                day=day,
+            )
+
+            import re as _re_rat
+            _rat_m = _re_rat.search(
+                r"<rationale>\s*(.*?)\s*</rationale>",
+                response.completion, _re_rat.DOTALL,
+            )
+            rationale_text = _rat_m.group(1).strip() if _rat_m else None
+
+            self.run_dir.events.write_event(
+                "agent_turn", day=day,
+                agent_id=name,
+                tier="tactical",
+                round=round_num,
+                reasoning=response.completion,
+                rationale=rationale_text,
+                actions=self._actions_to_dict(actions),
+                model=response.model,
+                tokens=response.total_tokens,
+                latency=response.latency_seconds,
+            )
+
+            for flag in self.cot_scanner.scan_reasoning(name, response.completion, day):
+                self.run_dir.events.write_event(
+                    "cot_flag", day=day,
+                    agent_id=flag.agent, tier="tactical",
+                    category=flag.category, evidence=flag.evidence,
+                    excerpt=flag.excerpt,
+                )
+
+            if actions.parse_error:
+                self.parse_failures += 1
+                continue
+            if actions.parse_recovery:
+                self.parse_recoveries += 1
+
+            self._execute_actions(
+                name, agent, actions, router, day, round_num=round_num,
+            )
+
+            has_activity = (
+                actions.messages
+                or actions.seller_offers
+                or actions.buyer_offers
+                or actions.accept_offers
+                or actions.decline_offers
+                or actions.produce_excellent > 0
+                or actions.produce_poor > 0
+                or actions.build_factory
+                or actions.produce_final_goods > 0
+                or actions.gossip_posts
+            )
+            if has_activity:
+                self.inactivity.mark_active(name)
+                any_action = True
+
+        return any_action
+
     def _run_sub_round(
         self, day: int, sub_round: int, router: MessageRouter, eligible: list[str],
     ) -> None:
@@ -794,9 +1090,14 @@ class SimulationEngine:
 
     def _execute_actions(
         self, name: str, agent: Agent, actions: TacticalActions,
-        router: MessageRouter, day: int,
+        router: MessageRouter, day: int, round_num: int = 0,
     ) -> None:
-        """Execute all parsed actions for one agent."""
+        """Execute all parsed actions for one agent.
+
+        round_num tags messages with the originating negotiation round
+        so within-day delivery can target round R+1 inboxes. The legacy
+        single-pass tactical tier passes round_num=0.
+        """
         # Messages (suppressed when protocol disables messaging)
         for msg in actions.messages:
             if self.protocol.disables_messaging:
@@ -808,7 +1109,7 @@ class SimulationEngine:
                 router.send(
                     sender=name, recipient=msg.to,
                     content=msg.body, is_public=msg.public,
-                    sub_round=0,
+                    sub_round=round_num,
                 )
                 agent.record_interaction(day, msg.to, "message_sent")
                 # Record on recipient as a received response
