@@ -1,0 +1,78 @@
+# long_horizon_d11_vllm_pilot.yaml — 5-day timing pilot on vLLM stack.
+#
+# Drop-in replacement for configs/long_horizon_d11_resume_test.yaml that
+# routes ALL three tiers (strategic / tactical / fulfillment) through a
+# single vLLM server on the GPU node, port 8000. Same Qwen 32B model,
+# but vLLM's continuous batching gives 5-10× higher throughput at
+# concurrent loads vs Ollama's sequential queue.
+#
+# Goal: measure 5-day wall-clock time and compare to the Ollama
+# baseline (2h26m, ~29 min/day). Decision criterion for D12:
+#   - <30 min total → vLLM solves the problem; D12 is feasible
+#   - 30-60 min → vLLM helps; D12 still needs scope adjustments
+#   - >60 min → vLLM didn't move the needle; rethink
+
+run:
+  days: 5
+  strategic_tier_days: [1]
+  inactivity_nudge_threshold: 2
+  max_parallel_llm_calls: 6      # vLLM batches well; push concurrency higher
+  max_sub_rounds: 0
+  fulfillment_phase: true
+  multi_round_negotiation: true
+  max_negotiation_rounds: 4
+  checkpoint_interval: 1
+
+models:
+  strategic:
+    provider: vllm
+    model: Qwen/Qwen2.5-32B-Instruct-AWQ
+    temperature: 0.7
+    max_tokens: 1000
+    timeout: 600.0
+    base_url: http://localhost:8000
+    seed: null
+  tactical:
+    provider: vllm
+    model: Qwen/Qwen2.5-32B-Instruct-AWQ
+    temperature: 0.7
+    max_tokens: 800
+    timeout: 400.0
+    base_url: http://localhost:8000
+    seed: null
+
+economics:
+  seller_starting_cash: [7500.0, 6500.0, 5500.0, 5000.0, 5000.0, 5000.0]
+  seller_starting_factories: 1
+  buyer_starting_cash: 6000.0
+  buyer_daily_production_cap: 3
+  factory_build_cost: 2000.0
+  factory_build_days: 3
+  bankruptcy_threshold: -2000.0
+  final_good_base_price_excellent: 42.0
+  final_good_base_price_poor: 38.0
+  starting_widgets_per_seller: 8
+  production_defect_rate: 0.30
+
+protocol:
+  system: no_protocol
+
+prompts:
+  style: full
+  anchor_stance: honest
+
+agents:
+  sellers:
+    - name: "Meridian Manufacturing"
+    - name: "Aldridge Industrial"
+    - name: "Crestline Components"
+    - name: "Vector Works"
+    - name: "Hartwell Industries"
+    - name: "Bellweather Trading"
+  buyers:
+    - name: "Halcyon Assembly"
+    - name: "Pinnacle Goods"
+    - name: "Coastal Fabrication"
+    - name: "Northgate Systems"
+    - name: "Greendale Manufacturing"
+    - name: "Lakemont Works"
