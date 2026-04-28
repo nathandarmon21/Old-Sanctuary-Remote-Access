@@ -36,9 +36,11 @@ echo "SEED: ${SEED}"
 echo "OUTPUT_DIR: ${OUTPUT_DIR}"
 echo "MODEL_NAME: ${MODEL_NAME}"
 
-# CUDA + Python env.
-module load cuda/12.4.1-fasrc01 cudnn/9.5.1.17_cuda12-fasrc01
-source "${HOME}/sanctuary-env/bin/activate"
+# CUDA + Python env. The vllm_env on netscratch has vLLM 0.11.2 + the
+# sanctuary package installed editable, all wheels prebuilt for py3.10.
+module purge
+module load python/3.10.13-fasrc01 cuda/12.4.1-fasrc01 cudnn/9.5.1.17_cuda12-fasrc01
+source /n/netscratch/zittrain_lab/Everyone/ndarmon/vllm_env/bin/activate
 
 # HF cache on netscratch (avoid home quota).
 export HF_HOME=/n/netscratch/zittrain_lab/Everyone/ndarmon/hf_cache
