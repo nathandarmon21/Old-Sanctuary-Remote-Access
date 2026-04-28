@@ -15,7 +15,7 @@ run:
   strategic_tier_days: [1, 8, 15, 22, 29, 36, 43, 50, 57, 64, 71, 78, 85,
                        92, 99, 106, 113, 120, 127, 134, 141, 148]
   inactivity_nudge_threshold: 2
-  max_parallel_llm_calls: 6      # vLLM continuous batching scales well
+  max_parallel_llm_calls: 12     # all 12 agents prefill in one vLLM batch
   max_sub_rounds: 0
   fulfillment_phase: true
   multi_round_negotiation: true

@@ -58,6 +58,7 @@ python3 -m vllm.entrypoints.openai.api_server \
     --port ${VLLM_PORT} \
     --gpu-memory-utilization 0.85 \
     --max-model-len 32768 \
+    --enable-prefix-caching \
     --disable-log-stats \
     > "${VLLM_LOG}" 2>&1 &
 VLLM_PID=$!
