@@ -58,7 +58,7 @@ echo "=== tick $NOW_ISO ===" >> "$LOG"
 ANY_LIVE=0
 ALERTS=()
 
-for i in 0 1 2; do
+for i in "${!JOBS[@]}"; do
     JID=${JOBS[$i]}
     NAME=${NAMES[$i]}
     DIR=${DIRS[$i]}
