@@ -58,6 +58,7 @@ from sanctuary.protocols.factory import create_protocol
 from sanctuary.providers.base import ContextTooLongError, ModelProvider
 from sanctuary.revelation import RevelationScheduler
 from sanctuary.analytics.scanner import CoTScanner
+from sanctuary.analytics.series import SeriesTracker
 from sanctuary.run_directory import RunDirectory
 
 
@@ -295,6 +296,11 @@ class SimulationEngine:
         # Behavioral scanner
         self.cot_scanner = CoTScanner()
 
+        # Daily metric snapshot accumulator (spec §3 / D6).
+        self.series_tracker = SeriesTracker(
+            agent_names=list(self.agents.keys()),
+        )
+
         # Dashboard hook (set by dashboard for Mode 2)
         self._dashboard_broadcast: Callable[[dict[str, Any]], None] | None = None
 
@@ -498,6 +504,18 @@ class SimulationEngine:
             # Write final state
             self.run_dir.write_final_state(self.market.daily_snapshot())
 
+            # Daily metric series (D6) — both CSV (back-compat) and JSONL
+            # (canonical for trend-line analyses).
+            try:
+                csv_text = self.series_tracker.to_csv()
+                if csv_text:
+                    self.run_dir.write_series(csv_text)
+                jsonl_text = self.series_tracker.to_jsonl()
+                if jsonl_text:
+                    (self.run_dir.run_dir / "daily_metrics.jsonl").write_text(jsonl_text)
+            except Exception as e:
+                log.error("series export failed: %s", e)
+
         except Exception:
             raise
 
@@ -667,6 +685,35 @@ class SimulationEngine:
             self._daily_summaries[name][day] = build_per_day_summary(
                 name=name, day=day, daily_events=day_events,
             )
+
+        # 13c. Daily metric snapshot (spec §3 / D6). Deterministic, derived
+        # from market state + today's events. Final write is at end of run.
+        agent_cash: dict[str, float] = {}
+        agent_inventory: dict[str, int] = {}
+        agent_quota: dict[str, int] = {}
+        agent_factories: dict[str, int] = {}
+        for sname, s in self.market.sellers.items():
+            agent_cash[sname] = s.cash
+            agent_inventory[sname] = sum(s.inventory.values())
+            agent_factories[sname] = s.factories
+        for bname, b in self.market.buyers.items():
+            agent_cash[bname] = b.cash
+            agent_inventory[bname] = sum(
+                lot.quantity_remaining for lot in b.widget_lots
+            )
+            agent_quota[bname] = b.widgets_acquired
+        realized = {n: self.market.net_profit_realized(n) for n in self.agents}
+        projected = {n: self.market.net_profit_projected(n) for n in self.agents}
+        self.series_tracker.update(
+            day=day,
+            day_events=day_events,
+            agent_cash=agent_cash,
+            agent_inventory=agent_inventory,
+            agent_quota=agent_quota,
+            agent_factories=agent_factories,
+            agent_net_profit_realized=realized,
+            agent_net_profit_projected=projected,
+        )
 
         # 14. Post-trade bankruptcy check
         bankruptcies2 = self.market.check_bankruptcies()
