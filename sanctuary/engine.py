@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import os
+import signal
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Callable
@@ -20,6 +21,19 @@ from typing import Any, Callable
 import numpy as np
 
 from sanctuary.agent import Agent, PolicyRecord, TacticalActions, SubRoundActions
+from sanctuary.checkpointing.checkpoint import (
+    save_checkpoint as _save_checkpoint_file,
+    try_resume as _try_resume_checkpoint,
+    _deserialize_rng_state,
+)
+from sanctuary.checkpointing.serialize import (
+    apply_agent_state,
+    apply_revelation_queue,
+    deserialize_market,
+    serialize_agent,
+    serialize_market,
+    serialize_revelation_queue,
+)
 from sanctuary.config import SimulationConfig, config_to_dict
 from sanctuary.context_manager import ContextManager
 from sanctuary.economics import (
@@ -276,23 +290,172 @@ class SimulationEngine:
         self._fast_forward = False
         self._tick_speed = 1.0
 
+        # Checkpoint/resume state
+        self.checkpoint_dir = self.run_dir.run_dir / "checkpoints"
+        self._sigterm_received = False
+        self._resumed_from_day = 0  # 0 = fresh start
+
+    def _save_checkpoint(self, day: int) -> None:
+        """Capture and persist the engine state at the end of `day`."""
+        try:
+            engine_state = {
+                "prev_day_messages": self._prev_day_messages,
+                "prev_outcomes": self._prev_outcomes,
+                "curr_outcomes": self._curr_outcomes,
+                "transactions_today": list(self._transactions_today),
+                "inactivity_consecutive": dict(self.inactivity._consecutive),
+            }
+            agent_states = {
+                name: serialize_agent(a) for name, a in self.agents.items()
+            }
+            counters = {
+                "total_strategic_calls": self.total_strategic_calls,
+                "total_tactical_calls": self.total_tactical_calls,
+                "total_prompt_tokens": self.total_prompt_tokens,
+                "total_completion_tokens": self.total_completion_tokens,
+                "parse_failures": self.parse_failures,
+                "parse_recoveries": self.parse_recoveries,
+            }
+            _save_checkpoint_file(
+                checkpoint_dir=self.checkpoint_dir,
+                day=day,
+                market_snapshot=serialize_market(self.market),
+                agent_states=agent_states,
+                rng_state=self.rng.bit_generator.state,
+                revelation_pending=serialize_revelation_queue(self.revelation_scheduler),
+                counters=counters,
+                engine_state=engine_state,
+                keep=3,
+            )
+            self.run_dir.events.write_event(
+                "checkpoint_saved", day=day,
+                checkpoint_path=str(self.checkpoint_dir / f"day_{day:03d}.json"),
+            )
+        except Exception as e:
+            log.error("checkpoint save failed at day %d: %s", day, e)
+
+    def _restore_from_checkpoint(self, snapshot: dict[str, Any]) -> int:
+        """Apply a loaded snapshot to this engine. Returns the day to resume from."""
+        last_day = int(snapshot.get("day", 0))
+        self.market = deserialize_market(snapshot["market_snapshot"])
+        # Re-bind protocol's market reference (it captured the original market
+        # at construction time and would otherwise mutate a detached object).
+        self.protocol.set_market(self.market)
+
+        for name, ad in snapshot.get("agent_states", {}).items():
+            if name in self.agents:
+                apply_agent_state(self.agents[name], ad)
+
+        rng_state = snapshot.get("rng_state")
+        if rng_state is not None:
+            self.rng.bit_generator.state = _deserialize_rng_state(rng_state)
+            # Re-bind protocol's rng reference too.
+            self.protocol.set_rng(self.rng)
+
+        apply_revelation_queue(
+            self.revelation_scheduler, snapshot.get("revelation_pending", []),
+        )
+
+        c = snapshot.get("counters", {})
+        self.total_strategic_calls = int(c.get("total_strategic_calls", 0))
+        self.total_tactical_calls = int(c.get("total_tactical_calls", 0))
+        self.total_prompt_tokens = int(c.get("total_prompt_tokens", 0))
+        self.total_completion_tokens = int(c.get("total_completion_tokens", 0))
+        self.parse_failures = int(c.get("parse_failures", 0))
+        self.parse_recoveries = int(c.get("parse_recoveries", 0))
+
+        es = snapshot.get("engine_state", {})
+        self._prev_day_messages = {
+            n: list(es.get("prev_day_messages", {}).get(n, []))
+            for n in self.agents
+        }
+        self._prev_outcomes = {
+            n: list(es.get("prev_outcomes", {}).get(n, []))
+            for n in self.agents
+        }
+        self._curr_outcomes = {
+            n: list(es.get("curr_outcomes", {}).get(n, []))
+            for n in self.agents
+        }
+        self._transactions_today = set(es.get("transactions_today", []))
+
+        consec = es.get("inactivity_consecutive", {})
+        for n in self.agents:
+            self.inactivity._consecutive[n] = int(consec.get(n, 0))
+
+        self.current_day = last_day
+        self._resumed_from_day = last_day
+        return last_day
+
+    def _install_sigterm_handler(self) -> None:
+        """Catch SIGTERM (e.g., SLURM walltime warning) so the day loop
+        can checkpoint and exit cleanly between days."""
+        def _handler(signum, frame):  # noqa: ARG001
+            self._sigterm_received = True
+            log.warning(
+                "SIGTERM received; flagging engine to checkpoint+exit at next day boundary",
+            )
+        try:
+            signal.signal(signal.SIGTERM, _handler)
+        except (ValueError, OSError):
+            # Not in main thread (e.g., dashboard mode) — skip gracefully.
+            pass
+
     def run(self) -> None:
         """Run the full simulation."""
         self.wall_start = time.time()
+        self._install_sigterm_handler()
 
-        self.run_dir.events.write_event(
-            "simulation_start", day=0,
-            seed=self.seed,
-            agent_names=list(self.agents.keys()),
-            protocol=self.protocol.name,
-        )
+        # Resume from checkpoint if one exists (e.g., this is a continuation
+        # job in an sbatch dependency chain). The previous job's checkpoint
+        # at the end of day N means we resume at day N+1.
+        snapshot = _try_resume_checkpoint(self.checkpoint_dir)
+        start_day = 1
+        if snapshot is not None:
+            resumed_day = self._restore_from_checkpoint(snapshot)
+            start_day = resumed_day + 1
+            self.run_dir.events.write_event(
+                "checkpoint_resumed", day=resumed_day,
+                resume_from_day=start_day,
+            )
+            log.info("resumed from checkpoint at day %d; starting at day %d",
+                     resumed_day, start_day)
+
+        if start_day == 1:
+            self.run_dir.events.write_event(
+                "simulation_start", day=0,
+                seed=self.seed,
+                agent_names=list(self.agents.keys()),
+                protocol=self.protocol.name,
+            )
+
+        checkpoint_interval = max(1, int(self.config.run.checkpoint_interval))
 
         try:
-            for day in range(1, self.config.run.days + 1):
+            for day in range(start_day, self.config.run.days + 1):
                 self.current_day = day
                 self.market.current_day = day
                 self._run_day(day)
                 self._broadcast_state()
+
+                # Save checkpoint at configured interval (and always on
+                # the final day so a clean run leaves a usable snapshot).
+                if (day % checkpoint_interval == 0
+                        or day == self.config.run.days):
+                    self._save_checkpoint(day)
+
+                if self._sigterm_received:
+                    log.warning(
+                        "SIGTERM honored at day %d; saving checkpoint and exiting",
+                        day,
+                    )
+                    if day % checkpoint_interval != 0 and day != self.config.run.days:
+                        self._save_checkpoint(day)
+                    self.run_dir.events.write_event(
+                        "simulation_interrupted", day=day,
+                        reason="sigterm",
+                    )
+                    return
 
             # End of run
             terminal_penalties = self.market.apply_terminal_quota_penalties()

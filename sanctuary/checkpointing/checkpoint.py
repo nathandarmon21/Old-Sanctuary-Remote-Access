@@ -11,6 +11,8 @@ Checkpoint files are written to: checkpoints/day_NNN.json
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +27,8 @@ def save_checkpoint(
     rng_state: dict[str, Any],
     revelation_pending: list[dict[str, Any]],
     counters: dict[str, Any],
+    engine_state: dict[str, Any] | None = None,
+    keep: int = 3,
 ) -> Path:
     """
     Save a checkpoint at the given day.
@@ -37,9 +41,18 @@ def save_checkpoint(
         rng_state: numpy RNG bit_generator state dict
         revelation_pending: list of pending revelation dicts
         counters: engine counters (calls, tokens, parse stats)
+        engine_state: optional engine-loop state (prev_day_messages,
+            inactivity counters, outcome buffers). Older callers may
+            omit this; loaders default missing fields to empty.
+        keep: number of most recent checkpoints to keep on disk
+            (older files are deleted after a successful save).
 
     Returns:
         Path to the written checkpoint file.
+
+    The write is atomic: the file is written to a sibling tmp path
+    and then renamed into place, so a kill mid-write cannot leave
+    a partial JSON file at the canonical path.
     """
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
@@ -50,14 +63,77 @@ def save_checkpoint(
         "rng_state": _serialize_rng_state(rng_state),
         "revelation_pending": revelation_pending,
         "counters": counters,
+        "engine_state": engine_state or {},
     }
 
     filename = f"day_{day:03d}.json"
     path = checkpoint_dir / filename
-    with open(path, "w") as f:
-        json.dump(checkpoint, f, indent=2, default=str)
+
+    fd, tmp_path = tempfile.mkstemp(
+        prefix=f".{filename}.", suffix=".tmp", dir=checkpoint_dir,
+    )
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(checkpoint, f, indent=2, default=str)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, path)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+    if keep is not None and keep > 0:
+        prune_old_checkpoints(checkpoint_dir, keep=keep)
 
     return path
+
+
+def prune_old_checkpoints(checkpoint_dir: Path, keep: int = 3) -> list[Path]:
+    """Delete all but the `keep` most recent checkpoints in `checkpoint_dir`.
+
+    Returns the list of paths that were deleted. Files that don't match
+    the day_NNN.json pattern are left alone.
+    """
+    if not checkpoint_dir.exists():
+        return []
+    entries: list[tuple[int, Path]] = []
+    for p in checkpoint_dir.glob("day_*.json"):
+        try:
+            day_n = int(p.stem.split("_")[1])
+        except (IndexError, ValueError):
+            continue
+        entries.append((day_n, p))
+    entries.sort(key=lambda x: x[0])
+    to_delete = entries[:-keep] if len(entries) > keep else []
+    deleted: list[Path] = []
+    for _, p in to_delete:
+        try:
+            p.unlink()
+            deleted.append(p)
+        except OSError:
+            pass
+    return deleted
+
+
+def try_resume(checkpoint_dir: Path) -> dict[str, Any] | None:
+    """Load the latest checkpoint if one exists.
+
+    Returns the checkpoint dict, or None if `checkpoint_dir` is missing
+    or contains no valid checkpoint file. Used by engine startup to
+    detect prior progress without raising.
+    """
+    if not checkpoint_dir.exists():
+        return None
+    latest = find_latest_checkpoint(checkpoint_dir)
+    if latest is None:
+        return None
+    try:
+        return load_checkpoint(checkpoint_dir, day=latest)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
 
 
 def load_checkpoint(checkpoint_dir: Path, day: int | None = None) -> dict[str, Any]:
