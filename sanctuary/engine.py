@@ -762,7 +762,6 @@ class SimulationEngine:
         outcomes_watermark: dict[str, int] = {n: 0 for n in self.agents}
         seen_buyer_offers: dict[str, set[str]] = {n: set() for n in self.agents}
         seen_seller_offers: dict[str, set[str]] = {n: set() for n in self.agents}
-        delivered_msg_ids: set[str] = set()
 
         max_rounds = max(1, self.config.run.max_negotiation_rounds)
         eligible: list[str] = [n for n in self.agents if not self._is_bankrupt(n)]
@@ -792,21 +791,11 @@ class SimulationEngine:
             )
 
             # Deliver this round's messages to recipients' next-round inboxes.
-            for msg in router.all_messages():
-                if msg.sub_round != round_num:
-                    continue
-                if msg.message_id in delivered_msg_ids:
-                    continue
-                for name in self.agents:
-                    if msg.sender == name:
-                        continue
-                    if msg.is_public or msg.recipient == name:
-                        round_inbox[name].append({
-                            "from": msg.sender,
-                            "body": msg.content,
-                            "public": msg.is_public,
-                        })
-                delivered_msg_ids.add(msg.message_id)
+            # MessageRouter.deliveries_for_round handles sender-exclusion,
+            # public broadcast, and private routing in one pass.
+            agent_names = list(self.agents.keys())
+            for name, msgs in router.deliveries_for_round(round_num, agent_names).items():
+                round_inbox[name].extend(msgs)
 
             if not any_action:
                 self.run_dir.events.write_event(

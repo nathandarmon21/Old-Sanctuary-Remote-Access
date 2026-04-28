@@ -83,6 +83,34 @@ class MessageRouter:
                 result.append(msg)
         return result
 
+    def deliveries_for_round(
+        self, round_num: int, agent_names: list[str],
+    ) -> dict[str, list[dict]]:
+        """Per-recipient inbox additions for messages sent in `round_num`.
+
+        Used by the multi-round engine to turn this round's outgoing
+        messages into next round's inbox content for each agent.
+
+        Each delivered entry is a dict {from, body, public}. Senders never
+        receive their own messages (even public broadcasts). Private
+        messages go only to the named recipient; public messages go to
+        every agent in `agent_names` except the sender.
+        """
+        deliveries: dict[str, list[dict]] = {name: [] for name in agent_names}
+        for msg in self._messages:
+            if msg.sub_round != round_num:
+                continue
+            for name in agent_names:
+                if msg.sender == name:
+                    continue
+                if msg.is_public or msg.recipient == name:
+                    deliveries[name].append({
+                        "from": msg.sender,
+                        "body": msg.content,
+                        "public": msg.is_public,
+                    })
+        return deliveries
+
     def all_messages(self) -> list[Message]:
         """All messages this day, in send order."""
         return list(self._messages)
