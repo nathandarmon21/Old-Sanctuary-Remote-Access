@@ -93,7 +93,8 @@ class TestConfigLoading:
         assert cash[3] == 3500.0
 
     def test_uniform_seller_cash_coercion(self):
-        """A single float for seller_starting_cash is expanded to a list of 4."""
+        """A single float for seller_starting_cash is coerced to a 1-element list.
+        The market builder expands it to match the seller count at run time."""
         raw = {
             "models": {
                 "strategic": {"provider": "ollama", "model": "test"},
@@ -106,24 +107,25 @@ class TestConfigLoading:
             },
         }
         config = SimulationConfig.model_validate(raw)
-        assert config.economics.seller_starting_cash == [5000.0] * 4
+        # Coerced to a single-entry list; expansion happens at market build time
+        assert config.economics.seller_starting_cash == [5000.0]
 
     def test_missing_file_raises(self):
         with pytest.raises(FileNotFoundError):
             load_config("configs/does_not_exist.yaml")
 
-    def test_four_sellers_required(self):
+    def test_at_least_two_sellers_required(self):
         raw = {
             "models": {
                 "strategic": {"provider": "ollama", "model": "test"},
                 "tactical": {"provider": "ollama", "model": "test"},
             },
             "agents": {
-                "sellers": [{"name": "S1"}, {"name": "S2"}],
+                "sellers": [{"name": "S1"}],
                 "buyers": [{"name": f"B{i}"} for i in range(4)],
             },
         }
-        with pytest.raises(ValidationError, match="4 sellers"):
+        with pytest.raises(ValidationError, match="2 sellers"):
             SimulationConfig.model_validate(raw)
 
     def test_unknown_provider_rejected(self):

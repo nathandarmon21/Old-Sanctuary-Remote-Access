@@ -1427,15 +1427,27 @@ def build_initial_market(
     fg_excellent = float(econ.get("final_good_base_price_excellent", FINAL_GOOD_BASE_PRICES["Excellent"]))
     fg_poor = float(econ.get("final_good_base_price_poor", FINAL_GOOD_BASE_PRICES["Poor"]))
 
-    # Asymmetric seller starting cash
+    seller_configs = config.get("agents", {}).get("sellers", [])
+    n_sellers = len(seller_configs)
+
+    # Seller starting cash: accepts a number (uniform), a list of N (per-seller),
+    # or a list of 1 (uniform via config). If list shorter than N sellers, the
+    # last entry is repeated for remaining sellers.
     seller_cash_list = econ.get("seller_starting_cash", SELLER_STARTING_CASH)
     if isinstance(seller_cash_list, (int, float)):
-        seller_cash_list = [float(seller_cash_list)] * 4
+        seller_cash_list = [float(seller_cash_list)] * n_sellers
+    elif isinstance(seller_cash_list, list) and len(seller_cash_list) == 1:
+        seller_cash_list = [float(seller_cash_list[0])] * n_sellers
 
-    seller_configs = config.get("agents", {}).get("sellers", [])
     sellers: dict[str, SellerState] = {}
     for i, sc in enumerate(seller_configs):
-        cash = float(seller_cash_list[i]) if i < len(seller_cash_list) else 5_000.0
+        # Use last entry as fallback if list is shorter than seller count
+        if i < len(seller_cash_list):
+            cash = float(seller_cash_list[i])
+        elif seller_cash_list:
+            cash = float(seller_cash_list[-1])
+        else:
+            cash = 5_000.0
 
         # Random starting inventory: each widget independently Excellent or Poor
         if rng is not None:

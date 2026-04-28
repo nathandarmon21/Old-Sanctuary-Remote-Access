@@ -63,7 +63,7 @@ class PromptConfig(BaseModel):
 class RunConfig(BaseModel):
     days: int = 30
     strategic_tier_days: list[int] = Field(default_factory=lambda: [1, 5, 10, 15, 20, 25, 30])
-    max_sub_rounds: int = 2
+    max_sub_rounds: int = 2  # legacy; ignored when multi_round_negotiation=true
     inactivity_nudge_threshold: int = 2
     max_parallel_llm_calls: int = 2
     checkpoint_interval: int = 5
@@ -72,6 +72,16 @@ class RunConfig(BaseModel):
     # decouples the claim-quality and ship-quality decisions, removing the
     # structural adjacency cue in the offer JSON schema.
     fulfillment_phase: bool = True
+    # When true, replaces the single-tactical-pass + buyer-only-sub-rounds
+    # day model with a multi-round negotiation loop. Within a day, agents
+    # may be called multiple times to react to messages and offers from
+    # earlier rounds the same day. Hard-capped by max_negotiation_rounds.
+    multi_round_negotiation: bool = False
+    # Hard cap on negotiation rounds per day. Round 1 calls every active
+    # agent. Rounds 2-N call only agents with new inbox or new pending
+    # offers since their last action. Day ends if a round produces no
+    # actions across all agents.
+    max_negotiation_rounds: int = 5
 
     @field_validator("days")
     @classmethod
@@ -118,14 +128,15 @@ class EconomicsConfig(BaseModel):
     @field_validator("seller_starting_cash", mode="before")
     @classmethod
     def coerce_seller_cash(cls, v: Any) -> list[float]:
-        """Accept a single float (uniform) or a list of 4 floats (asymmetric)."""
+        """Accept a single float (uniform) or a list of N floats matching the seller count.
+        The full check that the list length matches the configured seller count is
+        deferred to SimulationConfig.validate_consistency.
+        """
         if isinstance(v, (int, float)):
-            return [float(v)] * 4
+            return [float(v)]  # one entry; gets expanded to seller count by builder
         if isinstance(v, list):
-            if len(v) != 4:
-                raise ValueError(f"seller_starting_cash must have exactly 4 entries, got {len(v)}")
             return [float(x) for x in v]
-        raise ValueError(f"seller_starting_cash must be a number or list of 4 numbers, got {type(v)}")
+        raise ValueError(f"seller_starting_cash must be a number or list of numbers, got {type(v)}")
 
 
 class SellerAgentConfig(BaseModel):
@@ -154,16 +165,16 @@ class AgentsConfig(BaseModel):
 
     @field_validator("sellers")
     @classmethod
-    def four_sellers(cls, v: list) -> list:
-        if len(v) != 4:
-            raise ValueError(f"Exactly 4 sellers required, got {len(v)}")
+    def at_least_two_sellers(cls, v: list) -> list:
+        if len(v) < 2:
+            raise ValueError(f"At least 2 sellers required, got {len(v)}")
         return v
 
     @field_validator("buyers")
     @classmethod
-    def four_buyers(cls, v: list) -> list:
-        if len(v) != 4:
-            raise ValueError(f"Exactly 4 buyers required, got {len(v)}")
+    def at_least_two_buyers(cls, v: list) -> list:
+        if len(v) < 2:
+            raise ValueError(f"At least 2 buyers required, got {len(v)}")
         return v
 
 
