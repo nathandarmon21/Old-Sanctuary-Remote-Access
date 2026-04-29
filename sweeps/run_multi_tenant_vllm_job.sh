@@ -56,8 +56,6 @@ python3 -m vllm.entrypoints.openai.api_server \
     --max-model-len 32768 \
     --enable-prefix-caching \
     --enable-chunked-prefill \
-    --num-scheduler-steps 4 \
-    --block-size 32 \
     --max-num-seqs "${VLLM_MAX_NUM_SEQS}" \
     --disable-log-stats \
     > "${VLLM_LOG}" 2>&1 &
