@@ -135,6 +135,46 @@ class TestPermitAcceptance:
 # ─── Long-run economic gradient ───────────────────────────────────────────────
 
 
+class TestSellerSelfBlock:
+    """The redesigned get_agent_context surfaces the seller's OWN rep
+    plus marginal impact of next-reveal decisions, per redesign 8/8."""
+
+    def test_seller_sees_own_rep_block(self):
+        p = EbayFeedbackProtocol()
+        # Use a fake "agent" object that the protocol can introspect.
+        class _FakeSeller:
+            is_seller = True
+            is_buyer = False
+
+        agents = {"Aldridge": _FakeSeller()}
+        # Two honest reveals -> rep = 5/6 ≈ 0.833
+        p.on_quality_revealed(_FakeTx("Aldridge", misrepresented=False), agents)
+        p.on_quality_revealed(_FakeTx("Aldridge", misrepresented=False), agents)
+
+        ctx = p.get_agent_context("Aldridge", agents, day=10)
+        assert "YOUR REPUTATION" in ctx
+        assert "Aldridge (YOU)" in ctx
+        assert "Marginal effect of your next reveal" in ctx
+        # Honest path should produce a higher rep than misrep path.
+        # The exact numbers depend on Bayesian formula: at 2 honest:
+        # one more misrep -> 2/3+pseudo = 5/7 ≈ 0.714
+        # one more honest -> 3/3+pseudo = 6/7 ≈ 0.857
+        assert "0.71" in ctx or "0.72" in ctx
+        assert "0.85" in ctx or "0.86" in ctx
+
+    def test_buyer_does_not_see_self_block(self):
+        p = EbayFeedbackProtocol()
+
+        class _FakeBuyer:
+            is_seller = False
+            is_buyer = True
+
+        agents = {"Halcyon": _FakeBuyer()}
+        ctx = p.get_agent_context("Halcyon", agents, day=1)
+        assert "YOUR REPUTATION" not in ctx
+        assert "AS A BUYER" in ctx
+
+
 class TestEconomicGradient:
     def test_excellent_margin_collapses_with_rep(self):
         """Sanity check: as rep degrades, max acceptable seller price drops

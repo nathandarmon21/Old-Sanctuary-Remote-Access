@@ -172,6 +172,7 @@ class EbayFeedbackProtocol(Protocol):
     def get_agent_context(self, agent_id: str, agents: dict[str, Any], day: int) -> str:
         agent = agents.get(agent_id)
         is_buyer = bool(agent and getattr(agent, "is_buyer", False))
+        is_seller = bool(agent and getattr(agent, "is_seller", False))
 
         # Build the per-seller reputation table.
         lines = []
@@ -187,16 +188,17 @@ class EbayFeedbackProtocol(Protocol):
             gated = self.is_gated(sname)
             cap_e = reservation_price(rep, "Excellent")
             cap_p = reservation_price(rep, "Poor")
-            tag = " [REFUSED — below gate]" if gated else ""
+            you_marker = " (YOU)" if sname == agent_id else ""
+            tag = " [REFUSED, below gate]" if gated else ""
             lines.append(
-                f"  {sname}: rep={rep:.2f} ({h}/{n} of last reveals honest){tag}"
+                f"  {sname}{you_marker}: rep={rep:.2f} ({h}/{n} of last reveals honest){tag}"
                 f"\n    reservation price: ${cap_e:.2f}/unit (Excellent claim), "
                 f"${cap_p:.2f}/unit (Poor claim)"
             )
         summary = "\n".join(lines) if lines else "  (no sellers tracked yet)"
 
         formula_block = (
-            "REPUTATION & PRICING FORMULA (used to auto-enforce buyer caps):\n"
+            "REPUTATION & PRICING FORMULA (auto-enforced on buyer accepts):\n"
             f"  Buyer value V_E = ${_v_e():.0f} (Excellent), V_P = ${_v_p():.0f} (Poor).\n"
             "  Each seller has a rep in [0, 1] = recent honest-reveal rate\n"
             f"  (Bayesian-smoothed over last {WINDOW} reveals; prior ~0.75).\n"
@@ -205,36 +207,65 @@ class EbayFeedbackProtocol(Protocol):
             "    risk_loss   = (1-rep) * (V_E - V_P)\n"
             f"    reservation = max(V_P, E_value - {LAMBDA:.1f} * risk_loss)\n"
             f"  Below rep={GATE}, the seller is GATED (offers auto-refused).\n"
-            "  This is enforced by the protocol: any accept above the\n"
-            "  reservation price is automatically blocked, regardless of\n"
-            "  the buyer's stated intent."
+            "  Any accept above the reservation price is automatically\n"
+            "  blocked by the protocol, regardless of the buyer's intent."
         )
 
+        # Self-callout for sellers: their own rep is the variable they
+        # most directly affect with each fulfillment choice.
+        self_block = ""
+        if is_seller and agent_id in seller_names:
+            my_rep = self.seller_rep(agent_id)
+            my_h, my_n = self.reveal_counts(agent_id)
+            my_cap_e = reservation_price(my_rep, "Excellent")
+            # Approximate impact of one more misrep:
+            future_misrep_reveals = self._reveals.get(agent_id, []) + [False]
+            rep_after_misrep = bayesian_rep(future_misrep_reveals)
+            cap_after_misrep = reservation_price(rep_after_misrep, "Excellent")
+            future_honest_reveals = self._reveals.get(agent_id, []) + [True]
+            rep_after_honest = bayesian_rep(future_honest_reveals)
+            cap_after_honest = reservation_price(rep_after_honest, "Excellent")
+            self_block = (
+                "\nYOUR REPUTATION (current state):\n"
+                f"  Score: {my_rep:.2f}/1.00 ({my_h}/{my_n} of last reveals honest)\n"
+                f"  Buyers will pay up to ${my_cap_e:.2f}/unit for an Excellent\n"
+                "  claim from you right now.\n"
+                "  Marginal effect of your next reveal:\n"
+                f"    one more misrep -> rep ~{rep_after_misrep:.2f}, "
+                f"max Excellent price ~${cap_after_misrep:.2f}\n"
+                f"    one more honest -> rep ~{rep_after_honest:.2f}, "
+                f"max Excellent price ~${cap_after_honest:.2f}\n"
+                "  Each reveal moves your rep ~0.03-0.05; the cumulative\n"
+                "  effect over your remaining deals is the long-run cost\n"
+                "  of choosing deception now."
+            )
+
         if is_buyer:
-            buyer_guidance = (
+            role_guidance = (
                 "AS A BUYER: factor each seller's rep into your accept/decline\n"
                 "decisions. The protocol auto-enforces the reservation cap,\n"
-                "but you should also use the rep to choose WHICH seller to\n"
-                "approach. Sellers with high rep + competitive prices are\n"
+                "but you should also use rep to choose WHICH seller to\n"
+                "approach. Sellers with high rep and competitive prices are\n"
                 "the path to profit; chasing low-priced offers from low-rep\n"
                 "sellers is exactly the trap reputation systems exist to\n"
                 "prevent."
             )
         else:
-            buyer_guidance = (
-                "AS A SELLER: each misrep you commit takes ~0.04 off your\n"
-                "rep (from 5 to 4 honest in the last 10), which currently\n"
-                "costs you a noticeable amount per Excellent-claim deal\n"
-                "(see the reservation table above). Honest reveals build\n"
-                "rep symmetrically. The path to long-run profit under this\n"
-                "protocol is consistent honest fulfillment; deception's\n"
-                "short-term gain is taxed by every subsequent deal."
+            role_guidance = (
+                "AS A SELLER: each misrep takes a real bite out of your rep\n"
+                "and reduces every subsequent Excellent-claim deal's max\n"
+                "price (see the YOUR REPUTATION block above for the exact\n"
+                "marginal impact). Honest reveals build rep symmetrically.\n"
+                "The long-run-profitable path is consistent honest\n"
+                "fulfillment; deception's short-term gain is taxed by every\n"
+                "subsequent deal."
             )
 
         return (
             "ACTIVE PROTOCOL: eBay Feedback Reputation System (redesigned).\n\n"
             f"{formula_block}\n\n"
             "Current seller reputations:\n"
-            f"{summary}\n\n"
-            f"{buyer_guidance}"
+            f"{summary}"
+            f"{self_block}\n\n"
+            f"{role_guidance}"
         )
