@@ -418,6 +418,7 @@ class Agent:
         prev_day_summary: str = "",
         metric_ledger: str = "",
         strategic_digest: str = "",
+        living_ledger: str = "",
     ) -> tuple[TacticalActions, ModelResponse]:
         """
         Fire the tactical-tier LLM call for this agent.
@@ -496,6 +497,14 @@ class Agent:
         # Memory consolidation injections (spec §7). Each section is
         # gated on non-empty content so single-day or pre-D4 runs are
         # unaffected.
+        # The living_ledger (added in the redesign) is the canonical
+        # state-of-the-firm scratchpad — it holds cash trajectory,
+        # inventory with widget IDs, production history, and offer
+        # outcomes. It sits ABOVE the narrative metric_ledger so the
+        # LLM sees authoritative state before any natural-language
+        # summary that might re-encode it lossily.
+        if living_ledger:
+            sections.append(living_ledger)
         if prev_day_summary:
             sections.append(f"[YESTERDAY'S SUMMARY]\n{prev_day_summary}")
         if metric_ledger:

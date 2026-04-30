@@ -865,6 +865,7 @@ class SimulationEngine:
                 "prev_day_summary": mem["prev_day_summary"],
                 "metric_ledger": mem["metric_ledger"],
                 "strategic_digest": mem["strategic_digest"],
+                "living_ledger": mem["living_ledger"],
             }
 
         def _call(pair: tuple[str, Agent]) -> tuple[str, Any]:
@@ -884,6 +885,7 @@ class SimulationEngine:
                         prev_day_summary=pre[name]["prev_day_summary"],
                         metric_ledger=pre[name]["metric_ledger"],
                         strategic_digest=pre[name]["strategic_digest"],
+                        living_ledger=pre[name]["living_ledger"],
                     )
                 actions, response = _retry_llm_call(_do, name)
                 return name, ("ok", actions, response)
@@ -1128,6 +1130,7 @@ class SimulationEngine:
                 "prev_day_summary": mem["prev_day_summary"],
                 "metric_ledger": mem["metric_ledger"],
                 "strategic_digest": mem["strategic_digest"],
+                "living_ledger": mem["living_ledger"],
             }
 
         def _call(name: str) -> tuple[str, Any]:
@@ -1147,6 +1150,7 @@ class SimulationEngine:
                         prev_day_summary=pre[name]["prev_day_summary"],
                         metric_ledger=pre[name]["metric_ledger"],
                         strategic_digest=pre[name]["strategic_digest"],
+                        living_ledger=pre[name]["living_ledger"],
                     )
                 actions, response = _retry_llm_call(_do, name)
                 return name, ("ok", actions, response)
@@ -1698,12 +1702,25 @@ class SimulationEngine:
     # ── Memory consolidation helpers (spec §7) ──────────────────────────────
 
     def _memory_inputs_for(self, name: str, day: int) -> dict[str, str]:
-        """Compute the three memory-consolidation injections for one
-        tactical call: yesterday's summary, the performance ledger, and
-        the strategic-memo digest."""
+        """Compute the memory-consolidation injections for one tactical call:
+        yesterday's summary, the performance ledger, the strategic-memo
+        digest, and the structured living ledger.
+
+        living_ledger replaces metric_ledger as the primary state-of-the-firm
+        block (cash trajectory + inventory with widget IDs + production
+        history + offer outcomes). The narrative metric_ledger is still
+        passed for back-compat.
+        """
+        from sanctuary.living_ledger import build_living_ledger
+
         agent = self.agents.get(name)
         if agent is None:
-            return {"prev_day_summary": "", "metric_ledger": "", "strategic_digest": ""}
+            return {
+                "prev_day_summary": "",
+                "metric_ledger": "",
+                "strategic_digest": "",
+                "living_ledger": "",
+            }
 
         prev_day_summary = self._daily_summaries.get(name, {}).get(day - 1, "")
 
@@ -1721,10 +1738,17 @@ class SimulationEngine:
             current_day=day,
         )
         strategic_digest = digest_recent_memos(agent.policy_history, k=10)
+        living_ledger = build_living_ledger(
+            name=name,
+            market=self.market,
+            day=day,
+            daily_events=self._daily_events,
+        )
         return {
             "prev_day_summary": prev_day_summary,
             "metric_ledger": metric_ledger,
             "strategic_digest": strategic_digest,
+            "living_ledger": living_ledger,
         }
 
     def _build_market_summary(self, day: int) -> str:
