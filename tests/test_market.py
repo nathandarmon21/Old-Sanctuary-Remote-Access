@@ -790,6 +790,51 @@ class TestDailyCosts:
         assert market.buyers["Halcyon Assembly"].cash == buyer_cash
 
 
+class TestFinancialPositionAlarm:
+    """build_financial_position emits an INSOLVENCY WARNING when runway
+    falls under 14 days. The strategic prompt embeds position_text directly,
+    so the warning lands at the top of the financial block."""
+
+    def test_no_alarm_when_cashflow_positive(self):
+        market = make_simple_market(seller_cash=5000.0)
+        # No transactions, no costs incurred yet, so per_day operating margin
+        # is 0 on day 1 -> burn = $80/day -> runway = 62 days, no alarm.
+        pos = market.build_financial_position(
+            "Meridian Manufacturing", day=1, days_total=100,
+        )
+        assert pos is not None
+        assert "INSOLVENCY WARNING" not in pos["position_text"]
+
+    def test_alarm_fires_when_runway_short(self):
+        # Cash $400 with $80/day fixed cost => 5 days runway; alarm fires.
+        market = make_simple_market(seller_cash=400.0)
+        pos = market.build_financial_position(
+            "Meridian Manufacturing", day=10, days_total=100,
+        )
+        assert pos is not None
+        text = pos["position_text"]
+        assert "INSOLVENCY WARNING" in text
+        assert "path to solvency" in text
+
+    def test_alarm_for_buyer(self):
+        market = make_simple_market(buyer_cash=200.0)
+        # Force the buyer to look like they've burned cash since start.
+        market.buyers["Halcyon Assembly"].starting_cash = 1000.0
+        pos = market.build_financial_position(
+            "Halcyon Assembly", day=5, days_total=100,
+        )
+        assert pos is not None
+        assert "INSOLVENCY WARNING" in pos["position_text"]
+
+    def test_position_includes_daily_fixed_cost_line(self):
+        market = make_simple_market(seller_cash=5000.0)
+        pos = market.build_financial_position(
+            "Meridian Manufacturing", day=1, days_total=100,
+        )
+        assert "Daily fixed cost" in pos["position_text"]
+        assert "$80.00" in pos["position_text"]
+
+
 # ── Config loading ────────────────────────────────────────────────────────────
 
 class TestBuildInitialMarket:

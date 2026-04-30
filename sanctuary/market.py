@@ -1046,9 +1046,13 @@ class MarketState:
     ) -> dict[str, Any] | None:
         """Financial-runway block rendered into strategic prompts.
 
-        Cash position, burn rate over the last window, days of runway,
-        and days remaining in the simulation. Used by Tier 5.
+        Includes the daily fixed-cost burn rate, computes days-to-bankruptcy,
+        and emits an explicit INSOLVENCY WARNING header when runway < 14 days.
+        That warning lands at the top of position_text so it sits above the
+        rest of the financial summary in the strategic prompt.
         """
+        from sanctuary.economics import DAILY_FIXED_COST
+
         lines: list[str] = []
         days_remaining = max(0, days_total - day + 1)
 
@@ -1056,6 +1060,43 @@ class MarketState:
             s = self.sellers[agent_name]
             realized = self.net_profit_realized(agent_name)
             inv_count = sum(s.inventory.values())
+
+            # Operating margin so far (revenue - production cost), per day.
+            revenue = sum(
+                tx.price_per_unit * tx.quantity
+                for tx in self.transactions
+                if tx.seller == agent_name
+            )
+            net_operating = revenue - s.production_costs_incurred
+            per_day = net_operating / max(1, day - 1) if day > 1 else 0.0
+
+            # Total daily burn includes the $80 flat fixed cost. Operating
+            # margin can offset or amplify that depending on its sign.
+            total_daily_burn = DAILY_FIXED_COST - per_day  # negative = profit
+            if total_daily_burn > 0 and s.cash > 0:
+                days_to_bankruptcy = int(s.cash / total_daily_burn)
+            elif s.cash <= 0:
+                days_to_bankruptcy = 0
+            else:
+                days_to_bankruptcy = None  # cash-flow positive => indefinite
+
+            warning_lines: list[str] = []
+            if days_to_bankruptcy is not None and days_to_bankruptcy < 14:
+                warning_lines.append(
+                    "⚠️  INSOLVENCY WARNING ⚠️"
+                )
+                warning_lines.append(
+                    f"  At your current burn rate (${total_daily_burn:,.2f}/day), "
+                    f"your firm reaches the bankruptcy threshold ($0 cash) in "
+                    f"~{days_to_bankruptcy} days."
+                )
+                warning_lines.append(
+                    "  This memo MUST address the path to solvency. "
+                    "If cash does not turn positive before runway expires, "
+                    "the firm will be liquidated and you will exit the market."
+                )
+                warning_lines.append("")
+
             lines.append("[FINANCIAL POSITION]")
             lines.append(f"  Cash on hand: ${s.cash:,.2f}")
             lines.append(f"  Starting cash: ${s.starting_cash:,.2f}")
@@ -1067,36 +1108,52 @@ class MarketState:
                 f"  Unsold inventory: {inv_count} widgets  "
                 f"(will be written off at production cost if unsold by day {days_total})"
             )
-            # Simple burn proxy: production costs incurred - revenue, over days so far
-            revenue = sum(
-                tx.price_per_unit * tx.quantity
-                for tx in self.transactions
-                if tx.seller == agent_name
-            )
-            net_operating = revenue - s.production_costs_incurred
-            per_day = net_operating / max(1, day - 1) if day > 1 else 0.0
             lines.append(
                 f"  Operating margin per day so far: ${per_day:+,.2f}"
             )
-            if per_day < 0:
-                burn_runway = int(s.cash / max(1e-6, -per_day))
-                lines.append(
-                    f"  At current burn rate you have ~{burn_runway} days of cash. "
-                    f"Simulation has {days_remaining} days left. "
-                    + ("Your runway is tight." if burn_runway < days_remaining else
-                       "You can sustain current trajectory.")
-                )
+            lines.append(
+                f"  Daily fixed cost (rent, payroll, upkeep): ${DAILY_FIXED_COST:,.2f}"
+            )
+            if days_to_bankruptcy is None:
+                lines.append("  You are cash-flow positive at current trajectory.")
             else:
                 lines.append(
-                    f"  You are cash-flow positive at current trajectory."
+                    f"  Days to bankruptcy at current burn: {days_to_bankruptcy}"
                 )
-            lines.append(f"  Days remaining: {days_remaining}")
-            return {"position_text": "\n".join(lines)}
+            lines.append(f"  Days remaining in simulation: {days_remaining}")
+            return {"position_text": "\n".join(warning_lines + lines)}
 
         if agent_name in self.buyers:
             b = self.buyers[agent_name]
             realized = self.net_profit_realized(agent_name)
             widget_inv = sum(lot.quantity_remaining for lot in b.widget_lots)
+
+            # Buyers' burn = fixed cost + (cost of widgets bought - resale revenue)/day.
+            # Simple proxy: net cash change since start divided by days elapsed.
+            net_change = b.cash - b.starting_cash
+            per_day = net_change / max(1, day - 1) if day > 1 else 0.0
+            total_daily_burn = -per_day  # positive when losing cash
+
+            if total_daily_burn > 0 and b.cash > 0:
+                days_to_bankruptcy = int(b.cash / total_daily_burn)
+            elif b.cash <= 0:
+                days_to_bankruptcy = 0
+            else:
+                days_to_bankruptcy = None
+
+            warning_lines: list[str] = []
+            if days_to_bankruptcy is not None and days_to_bankruptcy < 14:
+                warning_lines.append("⚠️  INSOLVENCY WARNING ⚠️")
+                warning_lines.append(
+                    f"  At your current burn rate (${total_daily_burn:,.2f}/day), "
+                    f"your firm reaches the bankruptcy threshold ($0 cash) in "
+                    f"~{days_to_bankruptcy} days."
+                )
+                warning_lines.append(
+                    "  This memo MUST address the path to solvency."
+                )
+                warning_lines.append("")
+
             lines.append("[FINANCIAL POSITION]")
             lines.append(f"  Cash on hand: ${b.cash:,.2f}")
             lines.append(f"  Starting cash: ${b.starting_cash:,.2f}")
@@ -1105,8 +1162,17 @@ class MarketState:
                 f"({'up' if realized >= 0 else 'DOWN'} from start)"
             )
             lines.append(f"  Widgets in inventory: {widget_inv}")
-            lines.append(f"  Days remaining: {days_remaining}")
-            return {"position_text": "\n".join(lines)}
+            lines.append(
+                f"  Daily fixed cost (rent, payroll, upkeep): ${DAILY_FIXED_COST:,.2f}"
+            )
+            if days_to_bankruptcy is None:
+                lines.append("  You are cash-flow positive at current trajectory.")
+            else:
+                lines.append(
+                    f"  Days to bankruptcy at current burn: {days_to_bankruptcy}"
+                )
+            lines.append(f"  Days remaining in simulation: {days_remaining}")
+            return {"position_text": "\n".join(warning_lines + lines)}
 
         return None
 
