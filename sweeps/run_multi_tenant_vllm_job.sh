@@ -48,14 +48,20 @@ export HF_HOME=/n/netscratch/zittrain_lab/Everyone/ndarmon/hf_cache
 cd "${SLURM_SUBMIT_DIR:-$PWD}"
 
 # ── Bring up vLLM with throughput-tuned flags ──
+DRAFT_MODEL="${DRAFT_MODEL:-Qwen/Qwen2.5-0.5B-Instruct}"
+NUM_SPEC_TOKENS="${NUM_SPEC_TOKENS:-5}"
+
 echo "[$(date -u +%FT%TZ)] Starting vLLM..."
 python3 -m vllm.entrypoints.openai.api_server \
     --model "${MODEL_NAME}" \
     --port "${VLLM_PORT}" \
-    --gpu-memory-utilization 0.85 \
+    --gpu-memory-utilization 0.92 \
     --max-model-len 32768 \
+    --max-num-batched-tokens 16384 \
     --enable-prefix-caching \
     --enable-chunked-prefill \
+    --speculative-model "${DRAFT_MODEL}" \
+    --num-speculative-tokens ${NUM_SPEC_TOKENS} \
     --max-num-seqs "${VLLM_MAX_NUM_SEQS}" \
     --disable-log-stats \
     > "${VLLM_LOG}" 2>&1 &

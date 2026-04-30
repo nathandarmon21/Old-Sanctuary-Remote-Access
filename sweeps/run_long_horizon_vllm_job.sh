@@ -50,15 +50,25 @@ mkdir -p "${OUTPUT_DIR}"
 cd "${SLURM_SUBMIT_DIR}"
 
 # ── Bring up vLLM server in the background ──
-# gpu-memory-utilization 0.85 leaves a small margin for HF tokenizer
-# and our own python process.
+# Performance tunings (post-redesign):
+#   --gpu-memory-utilization 0.92: bigger KV cache, supports more
+#       concurrent in-flight requests (~12 agents per round x multi-tenant).
+#   --max-num-batched-tokens 16384: deeper continuous-batching depth.
+#   Speculative decoding with Qwen 2.5 0.5B as the draft model: 2-3x
+#       decode speedup. Vocabularies share the Qwen tokenizer family.
+DRAFT_MODEL="${DRAFT_MODEL:-Qwen/Qwen2.5-0.5B-Instruct}"
+NUM_SPEC_TOKENS="${NUM_SPEC_TOKENS:-5}"
+
 echo "[$(date -u +%FT%TZ)] Launching vLLM server..."
 python3 -m vllm.entrypoints.openai.api_server \
     --model "${MODEL_NAME}" \
     --port ${VLLM_PORT} \
-    --gpu-memory-utilization 0.85 \
+    --gpu-memory-utilization 0.92 \
     --max-model-len 32768 \
+    --max-num-batched-tokens 16384 \
     --enable-prefix-caching \
+    --speculative-model "${DRAFT_MODEL}" \
+    --num-speculative-tokens ${NUM_SPEC_TOKENS} \
     --disable-log-stats \
     > "${VLLM_LOG}" 2>&1 &
 VLLM_PID=$!
