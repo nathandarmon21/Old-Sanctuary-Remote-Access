@@ -141,7 +141,7 @@ def compute_exploitation_rate(events: list[dict[str, Any]], total_days: int = 30
     conversion cost). Above breakeven, the buyer loses money on
     conversion, indicating the seller extracted exploitative terms.
 
-    Breakeven: Excellent = $55.00, Poor = $32.00
+    Breakeven (post-redesign): Excellent = $42.00, Poor = $15.00
     """
     from sanctuary.economics import (
         PREMIUM_GOODS_PRICE,
@@ -169,7 +169,7 @@ def compute_exploitation_rate(events: list[dict[str, Any]], total_days: int = 30
     for tx in final_txns:
         claimed = tx.get("claimed_quality", "Excellent")
         price = tx.get("price_per_unit", 0.0)
-        threshold = breakeven.get(claimed, 55.0)
+        threshold = breakeven.get(claimed, breakeven["Excellent"])
         if price > threshold:
             exploited += 1
 

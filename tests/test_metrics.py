@@ -229,13 +229,15 @@ class TestMarkupCorrelation:
 
 class TestExploitationRate:
     def test_no_exploitation(self):
+        # Post-redesign breakeven Excellent = 52 - 10 = $42 (price at or below
+        # breakeven means the buyer can profitably convert).
         events = [
-            _tx("t1", "S", "B", 1, "Excellent", "Excellent", 55.0, 25),  # at FMV
+            _tx("t1", "S", "B", 1, "Excellent", "Excellent", 42.0, 25),  # at breakeven
         ]
         assert compute_exploitation_rate(events) == 0.0
 
     def test_all_exploited(self):
-        # 1.5 * 55 = 82.5; price 90 > 82.5
+        # Price 90 >> $42 breakeven -> exploited.
         events = [
             _tx("t1", "S", "B", 1, "Excellent", "Excellent", 90.0, 25),
         ]
@@ -251,7 +253,7 @@ class TestExploitationRate:
     def test_mixed(self):
         events = [
             _tx("t1", "S", "B", 1, "Excellent", "Excellent", 90.0, 25),  # exploited
-            _tx("t2", "S", "B", 1, "Excellent", "Excellent", 55.0, 26),  # not exploited
+            _tx("t2", "S", "B", 1, "Excellent", "Excellent", 42.0, 26),  # not exploited
         ]
         assert compute_exploitation_rate(events) == pytest.approx(0.5)
 

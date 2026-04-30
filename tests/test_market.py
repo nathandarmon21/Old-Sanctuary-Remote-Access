@@ -383,10 +383,18 @@ class TestBankruptcy:
         assert market.buyers["Halcyon Assembly"].bankrupt is True
 
     def test_bankruptcy_exactly_at_threshold_not_triggered(self):
-        # At exactly -3000.0, agent survives (threshold is strictly less than)
-        market = make_simple_market(seller_cash=-5_000.0, buyer_cash=-5_000.0)
+        # Threshold = 0 (post-redesign). At exactly $0 cash, agent survives
+        # (check is strictly less than threshold).
+        market = make_simple_market(seller_cash=0.0, buyer_cash=0.0)
         bankrupt = market.check_bankruptcies()
         assert len(bankrupt) == 0
+
+    def test_bankruptcy_just_below_zero_triggered(self):
+        # Post-redesign: any negative cash triggers bankruptcy.
+        market = make_simple_market(seller_cash=-0.01, buyer_cash=-0.01)
+        bankrupt = market.check_bankruptcies()
+        assert "Meridian Manufacturing" in bankrupt
+        assert "Halcyon Assembly" in bankrupt
 
     def test_bankruptcy_clears_seller_inventory(self):
         """Bankrupt seller's inventory is zeroed out (written off)."""
@@ -716,8 +724,8 @@ class TestDailyCosts:
         costs = market.apply_holding_costs()
         # Quadratic: total_inv=5, rate = 0.02 + 0.005*5 = 0.045
         # Excellent: 30 * 0.045 * 2 = 2.70
-        # Poor: 20 * 0.045 * 3 = 2.70
-        expected = 2.70 + 2.70  # = 5.40
+        # Poor:     10 * 0.045 * 3 = 1.35  (post-redesign Poor cost)
+        expected = 2.70 + 1.35  # = 4.05
         assert costs["Meridian Manufacturing"] == pytest.approx(expected)
         assert market.sellers["Meridian Manufacturing"].cash == pytest.approx(
             initial_cash - expected

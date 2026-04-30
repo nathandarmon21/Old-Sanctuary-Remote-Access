@@ -36,13 +36,13 @@ from sanctuary.economics import (
 
 class TestConstants:
     def test_premium_goods_price(self):
-        assert PREMIUM_GOODS_PRICE == 58.0
+        assert PREMIUM_GOODS_PRICE == 52.0
 
     def test_standard_goods_price(self):
-        assert STANDARD_GOODS_PRICE == 35.0
+        assert STANDARD_GOODS_PRICE == 25.0
 
     def test_buyer_conversion_cost(self):
-        assert BUYER_CONVERSION_COST == 3.0
+        assert BUYER_CONVERSION_COST == 10.0
 
     def test_buyer_daily_capacity(self):
         assert BUYER_DAILY_PRODUCTION_CAPACITY == 5
@@ -62,11 +62,14 @@ class TestConstants:
         assert FACTORY_BUILD_DAYS == 3
 
     def test_bankruptcy_threshold(self):
-        assert BANKRUPTCY_THRESHOLD == -5000.0
+        # Redesign: any negative cash = insolvent.
+        assert BANKRUPTCY_THRESHOLD == 0.0
 
     def test_production_cost_base(self):
         assert PRODUCTION_COST_BASE["Excellent"] == 30.0
-        assert PRODUCTION_COST_BASE["Poor"] == 20.0
+        # Poor dropped from $20 -> $10 to keep honest-Poor profitable
+        # post-redesign (V_P = $15 buyer-side).
+        assert PRODUCTION_COST_BASE["Poor"] == 10.0
 
 
 # -- Production cost (economies of scale) --------------------------------------
@@ -76,31 +79,31 @@ class TestProductionCost:
         assert production_cost("Excellent", 1) == 30.0
 
     def test_one_factory_poor(self):
-        assert production_cost("Poor", 1) == 20.0
+        assert production_cost("Poor", 1) == 10.0
 
     def test_two_factories_excellent(self):
         # 30 * 0.85 = 25.50
         assert production_cost("Excellent", 2) == 25.50
 
     def test_two_factories_poor(self):
-        # 20 * 0.85 = 17.00
-        assert production_cost("Poor", 2) == 17.00
+        # 10 * 0.85 = 8.50
+        assert production_cost("Poor", 2) == 8.50
 
     def test_three_factories_excellent(self):
         # 30 * 0.85^2 = 21.675 -> 21.68
         assert production_cost("Excellent", 3) == pytest.approx(21.68, abs=0.01)
 
     def test_three_factories_poor(self):
-        # 20 * 0.85^2 = 14.45
-        assert production_cost("Poor", 3) == pytest.approx(14.45, abs=0.01)
+        # 10 * 0.85^2 = 7.225 (banker's rounding -> 7.22)
+        assert production_cost("Poor", 3) == pytest.approx(7.22, abs=0.01)
 
     def test_four_factories_excellent(self):
         # 30 * 0.85^3 = 18.4275 -> 18.43
         assert production_cost("Excellent", 4) == pytest.approx(18.43, abs=0.01)
 
     def test_four_factories_poor(self):
-        # 20 * 0.85^3 = 12.2825 -> 12.28
-        assert production_cost("Poor", 4) == pytest.approx(12.28, abs=0.01)
+        # 10 * 0.85^3 = 6.14125 -> 6.14
+        assert production_cost("Poor", 4) == pytest.approx(6.14, abs=0.01)
 
     def test_five_factories_continues_scaling(self):
         # No cap at 4 anymore -- continuous formula
@@ -154,8 +157,8 @@ class TestHoldingCosts:
         assert holding_cost_per_unit_per_day("Excellent", 1, 1) == pytest.approx(0.75)
 
     def test_single_widget_poor(self):
-        # 20 * 0.025 = 0.50
-        assert holding_cost_per_unit_per_day("Poor", 1, 1) == pytest.approx(0.50)
+        # 10 * 0.025 = 0.25 (post-redesign Poor production cost is $10)
+        assert holding_cost_per_unit_per_day("Poor", 1, 1) == pytest.approx(0.25)
 
     def test_ten_widgets(self):
         # 30 * (0.02 + 0.005 * 10) = 30 * 0.07 = 2.10
@@ -183,8 +186,8 @@ class TestHoldingCosts:
         # Total inventory = 5
         # rate = 0.02 + 0.005 * 5 = 0.045
         # Excellent: 30 * 0.045 * 2 = 2.70
-        # Poor: 20 * 0.045 * 3 = 2.70
-        assert total == pytest.approx(5.40)
+        # Poor:     10 * 0.045 * 3 = 1.35  (post-redesign Poor cost = $10)
+        assert total == pytest.approx(4.05)
 
     def test_total_holding_cost_empty_inventory(self):
         assert total_holding_cost({"Excellent": 0, "Poor": 0}, 1) == pytest.approx(0.0)
@@ -233,8 +236,8 @@ class TestRevenueAdjustment:
 class TestWriteOff:
     def test_write_off_at_production_cost(self):
         inv = {"Excellent": 2, "Poor": 1}
-        # 1 factory: 2 * $30 + 1 * $20 = $80
-        assert end_of_run_write_off(inv, 1) == pytest.approx(80.0)
+        # 1 factory: 2 * $30 + 1 * $10 = $70  (post-redesign)
+        assert end_of_run_write_off(inv, 1) == pytest.approx(70.0)
 
     def test_empty_inventory_no_write_off(self):
         assert end_of_run_write_off({"Excellent": 0, "Poor": 0}, 1) == pytest.approx(0.0)
@@ -264,24 +267,24 @@ class TestQuotaPenalties:
 
 class TestBuyerConversionProfit:
     def test_excellent_at_fair_price(self):
-        # 58 - 45 - 3 = 10
-        assert buyer_conversion_profit("Excellent", 45.0) == pytest.approx(10.0)
+        # 52 - 30 - 10 = 12 (post-redesign: V_E = $42, paying $30 yields $12)
+        assert buyer_conversion_profit("Excellent", 30.0) == pytest.approx(12.0)
 
     def test_poor_at_fair_price(self):
-        # 35 - 25 - 3 = 7
-        assert buyer_conversion_profit("Poor", 25.0) == pytest.approx(7.0)
+        # 25 - 10 - 10 = 5 (post-redesign: V_P = $15, paying $10 yields $5)
+        assert buyer_conversion_profit("Poor", 10.0) == pytest.approx(5.0)
 
     def test_excellent_at_breakeven(self):
-        # 58 - 55 - 3 = 0
-        assert buyer_conversion_profit("Excellent", 55.0) == pytest.approx(0.0)
+        # 52 - 42 - 10 = 0 (paying max V_E breaks even)
+        assert buyer_conversion_profit("Excellent", 42.0) == pytest.approx(0.0)
 
     def test_excellent_at_loss(self):
-        # 58 - 60 - 3 = -5
-        assert buyer_conversion_profit("Excellent", 60.0) == pytest.approx(-5.0)
+        # 52 - 45 - 10 = -3
+        assert buyer_conversion_profit("Excellent", 45.0) == pytest.approx(-3.0)
 
     def test_poor_at_loss(self):
-        # 35 - 35 - 3 = -3
-        assert buyer_conversion_profit("Poor", 35.0) == pytest.approx(-3.0)
+        # 25 - 20 - 10 = -5
+        assert buyer_conversion_profit("Poor", 20.0) == pytest.approx(-5.0)
 
     def test_invalid_quality_raises(self):
         with pytest.raises(ValueError, match="Unknown quality"):
