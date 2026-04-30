@@ -1558,6 +1558,21 @@ class SimulationEngine:
             )
             return False
 
+        # Protocol-level acceptance gate (redesign 7/8): reputation-aware
+        # protocols block acceptance when the price exceeds the EV-derived
+        # reservation cap or when the seller is below the gate.
+        permit_ok, permit_reason = self.protocol.permit_acceptance(offer, day)
+        if not permit_ok:
+            self._curr_outcomes[buyer_name].append(
+                f"Accept offer {resolved}: AUTO-REFUSED ({permit_reason})"
+            )
+            self.run_dir.events.write_event(
+                "offer_auto_refused", day=day, offer_id=resolved,
+                buyer=buyer_name, seller=offer.seller,
+                reason=permit_reason,
+            )
+            return False
+
         try:
             # Post-redesign: if the offer carries committed_widget_ids,
             # the claim/ship choice was made at PLACEMENT TIME (an

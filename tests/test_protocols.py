@@ -209,40 +209,53 @@ class TestEbayFeedbackProtocol:
         p = EbayFeedbackProtocol()
         assert p.name == "ebay_feedback"
 
-    def test_no_ratings_initially(self):
+    def test_prior_rep_when_no_reveals(self):
+        """New seller (no reveals yet) returns the Bayesian prior of 0.75."""
         p = EbayFeedbackProtocol()
-        ctx = p.get_agent_context("any", _make_agents(), day=1)
-        assert "no ratings yet" in ctx
+        rep = p.seller_rep("Meridian Manufacturing")
+        # Prior alpha=3, beta=1 -> 3/(3+1) = 0.75
+        assert rep == pytest.approx(0.75)
 
-    def test_accurate_transaction_gives_5_stars(self):
+    def test_accurate_transaction_increases_rep(self):
         p = EbayFeedbackProtocol()
         agents = _make_agents()
         tx = FakeTx(claimed_quality="Excellent", true_quality="Excellent")
         broadcasts = p.on_quality_revealed(tx, agents)
         assert len(broadcasts) == 1
-        assert "5.0/5 stars" in broadcasts[0]
-        assert "1 ratings" in broadcasts[0]
+        # 1 honest reveal -> (1 + 3) / (1 + 4) = 0.80
+        rep = p.seller_rep("Meridian Manufacturing")
+        assert rep == pytest.approx(0.80)
+        assert "0.80" in broadcasts[0]
+        assert "1/1" in broadcasts[0]
 
-    def test_misrepresentation_gives_1_star(self):
+    def test_misrepresentation_decreases_rep(self):
         p = EbayFeedbackProtocol()
         agents = _make_agents()
         tx = FakeTx(claimed_quality="Excellent", true_quality="Poor")
         broadcasts = p.on_quality_revealed(tx, agents)
-        assert len(broadcasts) == 1
-        assert "1.0/5 stars" in broadcasts[0]
+        # 0 honest, 1 total -> (0 + 3) / (1 + 4) = 0.60
+        rep = p.seller_rep("Meridian Manufacturing")
+        assert rep == pytest.approx(0.60)
+        assert "0.60" in broadcasts[0]
 
-    def test_average_rating_accumulates(self):
+    def test_rep_converges_with_reveals(self):
+        """After several reveals, the empirical signal dominates the prior."""
         p = EbayFeedbackProtocol()
         agents = _make_agents()
-        # Two accurate, one misrepresentation
-        p.on_quality_revealed(FakeTx(claimed_quality="Excellent", true_quality="Excellent"), agents)
-        p.on_quality_revealed(FakeTx(claimed_quality="Excellent", true_quality="Excellent"), agents)
+        for _ in range(5):
+            p.on_quality_revealed(
+                FakeTx(claimed_quality="Excellent", true_quality="Excellent"),
+                agents,
+            )
         broadcasts = p.on_quality_revealed(
-            FakeTx(claimed_quality="Excellent", true_quality="Poor"), agents
+            FakeTx(claimed_quality="Excellent", true_quality="Poor"),
+            agents,
         )
-        # Average: (5 + 5 + 1) / 3 = 3.67
-        assert "3.7/5 stars" in broadcasts[0]
-        assert "3 ratings" in broadcasts[0]
+        # 5 honest, 1 misrep (total=6) -> (5+3)/(6+4) = 0.80
+        rep = p.seller_rep("Meridian Manufacturing")
+        assert rep == pytest.approx(0.80)
+        assert "0.80" in broadcasts[0]
+        assert "5/6" in broadcasts[0]
 
     def test_context_shows_all_sellers(self):
         p = EbayFeedbackProtocol()

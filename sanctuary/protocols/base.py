@@ -78,6 +78,22 @@ class Protocol:
         """
         return []
 
+    def permit_acceptance(self, offer: Any, day: int) -> tuple[bool, str]:
+        """
+        Called when a buyer attempts to accept an offer. Returns
+        (allow, reason). allow=False blocks the acceptance; reason is
+        surfaced to the buyer's outcome log.
+
+        Reputation-aware protocols (ebay_feedback) use this to enforce
+        per-seller reservation prices and gating: a buyer cannot accept
+        an offer whose price exceeds the EV-derived reservation price
+        for that seller's reputation, and offers from sellers below the
+        gate threshold are auto-rejected regardless of price.
+
+        Default: allow everything.
+        """
+        return True, ""
+
     def format_transaction_history_for_buyer(
         self,
         buyer_id: str,
