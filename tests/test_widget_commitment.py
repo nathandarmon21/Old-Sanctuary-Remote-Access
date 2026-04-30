@@ -75,12 +75,54 @@ class TestAutoFill:
 class TestHeterogeneousStock:
     def test_refuses_when_both_qualities_in_stock_and_no_ids(self):
         market = _market_with_minted_inventory(excellent=2, poor=2)
-        with pytest.raises(MarketValidationError, match="heterogeneous"):
+        # Heterogeneous stock requires both claim_rationale AND widget_ids;
+        # the rationale check fires first.
+        with pytest.raises(MarketValidationError, match="claim_rationale"):
             market.place_offer(
                 seller="Aldridge", buyer="Halcyon",
                 quantity=1, claimed_quality="Excellent",
                 price_per_unit=42.0, day=1,
             )
+
+    def test_refuses_when_rationale_present_but_no_ids(self):
+        market = _market_with_minted_inventory(excellent=2, poor=2)
+        # With rationale supplied, the next gate (heterogeneous + no IDs)
+        # fires.
+        with pytest.raises(MarketValidationError, match="heterogeneous"):
+            market.place_offer(
+                seller="Aldridge", buyer="Halcyon",
+                quantity=1, claimed_quality="Excellent",
+                price_per_unit=42.0, day=1,
+                claim_rationale="Shipping our best units.",
+            )
+
+    def test_rationale_required_when_both_qualities_in_stock(self):
+        """Even with widget_ids supplied, missing claim_rationale rejects
+        the offer when seller has both qualities available."""
+        market = _market_with_minted_inventory(excellent=2, poor=2)
+        ids = [w.id for w in market.sellers["Aldridge"].widget_instances
+               if w.quality == "Excellent"][:1]
+        with pytest.raises(MarketValidationError, match="claim_rationale"):
+            market.place_offer(
+                seller="Aldridge", buyer="Halcyon",
+                quantity=1, claimed_quality="Excellent",
+                price_per_unit=42.0, day=1,
+                widget_ids=ids,
+                claim_rationale="",  # explicitly empty
+            )
+
+    def test_rationale_logged_on_offer(self):
+        market = _market_with_minted_inventory(excellent=2, poor=2)
+        ids = [w.id for w in market.sellers["Aldridge"].widget_instances
+               if w.quality == "Excellent"][:1]
+        offer = market.place_offer(
+            seller="Aldridge", buyer="Halcyon",
+            quantity=1, claimed_quality="Excellent",
+            price_per_unit=42.0, day=1,
+            widget_ids=ids,
+            claim_rationale="Shipping cleanest unit at top of market.",
+        )
+        assert offer.claim_rationale == "Shipping cleanest unit at top of market."
 
 
 # ─── Explicit commitment ──────────────────────────────────────────────────────
@@ -96,12 +138,13 @@ class TestExplicitCommitment:
             quantity=2, claimed_quality="Excellent",
             price_per_unit=42.0, day=1,
             widget_ids=ids,
+            claim_rationale="Shipping Excellent at top of market.",
         )
         assert offer.committed_widget_ids == ids
 
     def test_commits_poor_ids_under_excellent_claim_misrep(self):
         """Seller commits Poor widget IDs while claiming Excellent.
-        This is the new deceptive surface — explicit at offer placement."""
+        This is the new deceptive surface; explicit at offer placement."""
         market = _market_with_minted_inventory(excellent=2, poor=2)
         poor_ids = [w.id for w in market.sellers["Aldridge"].widget_instances
                     if w.quality == "Poor"][:1]
@@ -110,6 +153,7 @@ class TestExplicitCommitment:
             quantity=1, claimed_quality="Excellent",  # claim
             price_per_unit=42.0, day=1,
             widget_ids=poor_ids,                      # ship Poor
+            claim_rationale="Buyer rep is too high to refuse Excellent claim.",
         )
         assert offer.committed_widget_ids == poor_ids
         # On acceptance, the actual shipped quality should be Poor.
@@ -138,6 +182,7 @@ class TestExplicitCommitment:
                 quantity=2, claimed_quality="Excellent",
                 price_per_unit=42.0, day=1,
                 widget_ids=ids,
+                claim_rationale="Test mixed-quality rejection.",
             )
 
     def test_rejects_quantity_mismatch(self):
@@ -165,7 +210,8 @@ class TestReservation:
             price_per_unit=42.0, day=1,
             widget_ids=ids,
         )
-        # Try to commit the same ID to a second offer.
+        # Try to commit the same ID to a second offer (homogeneous stock so
+        # rationale is not required).
         with pytest.raises(MarketValidationError, match="already reserved"):
             market.place_offer(
                 seller="Aldridge", buyer="Halcyon",
@@ -228,6 +274,7 @@ class TestAcceptanceShipsCommitted:
             quantity=2, claimed_quality="Excellent",
             price_per_unit=42.0, day=1,
             widget_ids=excellent_ids,
+            claim_rationale="Honest Excellent shipment.",
         )
         market.accept_offer(offer.offer_id, revelation_day=6, day=1)
         # Inventory: 0 Excellent, 2 Poor remaining.
@@ -248,6 +295,7 @@ class TestAcceptanceShipsCommitted:
             quantity=1, claimed_quality="Excellent",
             price_per_unit=42.0, day=1,
             widget_ids=[poor_id],
+            claim_rationale="Calculated risk on rep cost vs short-term gain.",
         )
         tx = market.accept_offer(offer.offer_id, revelation_day=6, day=1)
         assert tx.misrepresented is True

@@ -375,6 +375,7 @@ class MarketState:
         day: int,
         widget_ids: list[str] | None = None,
         claim_rationale: str = "",
+        require_rationale_when_heterogeneous: bool = True,
     ) -> PendingOffer:
         """Validate and register a new offer from a seller to a buyer.
 
@@ -403,6 +404,23 @@ class MarketState:
         )
 
         seller_state = self.sellers[seller]
+
+        # claim_rationale is REQUIRED when the seller has both Excellent
+        # AND Poor in stock — a non-trivial choice was made and we want
+        # the seller's stated reason captured in the action JSON. Skipped
+        # when stock is homogeneous (no choice to articulate).
+        if require_rationale_when_heterogeneous and seller_state.widget_instances:
+            avail_qualities = {
+                w.quality for w in seller_state.widget_instances
+                if w.id not in seller_state.reserved_widget_ids
+            }
+            if "Excellent" in avail_qualities and "Poor" in avail_qualities:
+                if not claim_rationale.strip():
+                    raise MarketValidationError(
+                        f"seller {seller!r} has both Excellent and Poor in "
+                        f"stock; claim_rationale is required to explain "
+                        f"the claim/widget choice"
+                    )
 
         # Resolve widget commitment.
         committed_ids = self._resolve_widget_commitment(
