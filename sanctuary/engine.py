@@ -1421,6 +1421,8 @@ class SimulationEngine:
                         claimed_quality=offer.claimed_quality,
                         price_per_unit=offer.price_per_unit,
                         day=day,
+                        widget_ids=offer.widget_ids or None,
+                        claim_rationale=offer.claim_rationale,
                     )
                     evt = self.run_dir.events.write_event(
                         "transaction_proposed", day=day,
@@ -1429,6 +1431,8 @@ class SimulationEngine:
                         claimed_quality=offer.claimed_quality,
                         price_per_unit=offer.price_per_unit,
                         seller_inventory_at_placement=inv_at_placement,
+                        committed_widget_ids=list(pending.committed_widget_ids),
+                        claim_rationale=pending.claim_rationale,
                     )
                     self._daily_events.setdefault(day, []).append(evt)
                     agent.record_interaction(day, offer.to, "offer_made")
@@ -1555,62 +1559,33 @@ class SimulationEngine:
             return False
 
         try:
-            # Fulfillment phase: the seller picks a specific widget from
-            # inventory to ship. This decouples the claim-quality decision
-            # (made at offer-placement by the tactical tier) from the
-            # ship-quality decision (made here in a separate LLM call
-            # framed as inventory logistics).
+            # Post-redesign: if the offer carries committed_widget_ids,
+            # the claim/ship choice was made at PLACEMENT TIME (an
+            # explicit choice in the seller's tactical action JSON), and
+            # we skip the fulfillment LLM call entirely. The market
+            # determines shipped_quality from the actual quality of the
+            # committed widgets. This closes the FORCED/CONFABULATED gap.
             shipped_quality = offer.claimed_quality
             widget_ids: list[str] | None = None
-            fulfillment_enabled = getattr(self.config.run, "fulfillment_phase", True)
-            seller_agent = self.agents.get(offer.seller)
             seller_state = self.market.sellers.get(offer.seller)
-            fulfillment_raw: str = ""
-            cost_differential = 0.0
-            picked_widgets: list = []
-            if (fulfillment_enabled
-                    and seller_agent is not None
-                    and seller_state is not None
-                    and seller_state.widget_instances):
-                try:
-                    (
-                        shipped_quality, widget_ids, fulfillment_raw,
-                    ) = seller_agent.fulfillment_call(
-                        buyer_name=buyer_name,
-                        quantity=offer.quantity,
-                        claimed_quality=offer.claimed_quality,
-                        price_per_unit=offer.price_per_unit,
-                        widget_instances=list(seller_state.widget_instances),
-                        revelation_days=REVELATION_LAG_DAYS,
-                        current_day=day,
-                    )
-                    # Compute cost differential between claimed-quality
-                    # production cost and shipped-quality production cost.
-                    # Positive = seller saved cost by shipping a cheaper unit.
-                    from sanctuary.economics import PRODUCTION_COST_BASE
-                    factories = max(1, seller_state.factories)
-                    from sanctuary.economics import production_cost as _pc
-                    claimed_cost = _pc(offer.claimed_quality, factories)
-                    shipped_cost = _pc(shipped_quality, factories)
-                    cost_differential = round(
-                        (claimed_cost - shipped_cost) * offer.quantity, 4,
-                    )
-                    # Resolve picked widgets for event logging (pre-removal)
-                    by_id = {w.id: w for w in seller_state.widget_instances}
-                    picked_widgets = [
-                        by_id[wid] for wid in (widget_ids or []) if wid in by_id
-                    ]
-                except Exception as e:
-                    log.warning(
-                        "fulfillment_call failed for %s: %s; defaulting to claimed",
-                        offer.seller, e,
-                    )
-                    shipped_quality = offer.claimed_quality
-                    widget_ids = None
-                    fulfillment_raw = f"ERROR: {e}"
 
-                # Log the fulfillment decision (before market.accept_offer so
-                # the event captures pre-removal state).
+            if offer.committed_widget_ids and seller_state is not None:
+                committed = list(offer.committed_widget_ids)
+                by_id = {w.id: w for w in seller_state.widget_instances}
+                actual_qs = {by_id[wid].quality for wid in committed if wid in by_id}
+                if actual_qs:
+                    shipped_quality = next(iter(actual_qs))
+                widget_ids = committed
+                # Log a fulfillment_decision event for analysis parity with
+                # the legacy path. This is now a deterministic record of
+                # the seller's commitment, not an LLM call.
+                from sanctuary.economics import production_cost as _pc
+                factories = max(1, seller_state.factories)
+                claimed_cost = _pc(offer.claimed_quality, factories)
+                shipped_cost = _pc(shipped_quality, factories)
+                cost_differential = round(
+                    (claimed_cost - shipped_cost) * offer.quantity, 4,
+                )
                 evt = self.run_dir.events.write_event(
                     "fulfillment_decision", day=day,
                     seller=offer.seller,
@@ -1622,9 +1597,65 @@ class SimulationEngine:
                     widget_ids=widget_ids or [],
                     cost_differential=cost_differential,
                     matched_claim=(shipped_quality == offer.claimed_quality),
-                    raw_response=fulfillment_raw[:2000],  # cap size
+                    raw_response="(committed at offer placement)",
+                    committed_at_placement=True,
                 )
                 self._daily_events.setdefault(day, []).append(evt)
+            else:
+                # Legacy path: fulfillment LLM call decides which widgets ship.
+                # Retained for back-compat with offers that pre-date widget-ID
+                # commitment (e.g. tests that don't go through the engine).
+                fulfillment_enabled = getattr(self.config.run, "fulfillment_phase", True)
+                seller_agent = self.agents.get(offer.seller)
+                fulfillment_raw: str = ""
+                cost_differential = 0.0
+                if (fulfillment_enabled
+                        and seller_agent is not None
+                        and seller_state is not None
+                        and seller_state.widget_instances):
+                    try:
+                        (
+                            shipped_quality, widget_ids, fulfillment_raw,
+                        ) = seller_agent.fulfillment_call(
+                            buyer_name=buyer_name,
+                            quantity=offer.quantity,
+                            claimed_quality=offer.claimed_quality,
+                            price_per_unit=offer.price_per_unit,
+                            widget_instances=list(seller_state.widget_instances),
+                            revelation_days=REVELATION_LAG_DAYS,
+                            current_day=day,
+                        )
+                        from sanctuary.economics import production_cost as _pc
+                        factories = max(1, seller_state.factories)
+                        claimed_cost = _pc(offer.claimed_quality, factories)
+                        shipped_cost = _pc(shipped_quality, factories)
+                        cost_differential = round(
+                            (claimed_cost - shipped_cost) * offer.quantity, 4,
+                        )
+                    except Exception as e:
+                        log.warning(
+                            "fulfillment_call failed for %s: %s; defaulting to claimed",
+                            offer.seller, e,
+                        )
+                        shipped_quality = offer.claimed_quality
+                        widget_ids = None
+                        fulfillment_raw = f"ERROR: {e}"
+
+                    evt = self.run_dir.events.write_event(
+                        "fulfillment_decision", day=day,
+                        seller=offer.seller,
+                        buyer=buyer_name,
+                        order_id=resolved,
+                        quantity=offer.quantity,
+                        claimed_quality=offer.claimed_quality,
+                        shipped_quality=shipped_quality,
+                        widget_ids=widget_ids or [],
+                        cost_differential=cost_differential,
+                        matched_claim=(shipped_quality == offer.claimed_quality),
+                        raw_response=fulfillment_raw[:2000],
+                        committed_at_placement=False,
+                    )
+                    self._daily_events.setdefault(day, []).append(evt)
 
             revelation_day = self.revelation_scheduler.schedule(
                 transaction_id=resolved,

@@ -52,15 +52,36 @@ class ParsedMessage:
 class ParsedOffer:
     """An offer a seller wants to place.
 
-    As of the fulfillment-phase architecture change, offers carry only
-    claimed_quality at placement time. The actual shipped quality is
-    decided by a separate fulfillment LLM call. Any legacy
-    `quality_to_send` field in the parsed JSON is silently ignored.
+    Post-redesign: sellers commit specific widget IDs at placement time
+    (e.g. ["W042", "W067"]). The market validates the IDs exist and are
+    unreserved; on acceptance, exactly those physical widgets ship at
+    their actual quality. This eliminates the temporal gap between
+    "what was claimed" and "what was shipped" that produced the
+    FORCED/CONFABULATED outcomes in the prior design.
+
+    The seller may still misrepresent: they can commit Poor widget IDs
+    while claiming Excellent — that's now a CoT-visible deceptive
+    choice in the action JSON itself, not a downstream fulfillment
+    artifact.
+
+    `widget_ids` is required when the seller has both Excellent AND Poor
+    in stock (so the claim choice is unambiguous). When stock is
+    homogeneous (e.g. only Excellent), an empty list is permitted and
+    the engine auto-fills with the appropriate IDs.
+
+    `claim_rationale` is required when stock is heterogeneous AND the
+    claim doesn't trivially match available stock — captures the
+    seller's stated reason for the claim choice (added in commit 6/8).
+
+    Any legacy `quality_to_send` field in the parsed JSON is silently
+    ignored.
     """
     to: str
     qty: int
     claimed_quality: str
     price_per_unit: float
+    widget_ids: list[str] = field(default_factory=list)
+    claim_rationale: str = ""
 
 
 @dataclass
@@ -1078,11 +1099,24 @@ def _parse_tactical_actions(text: str, agent_role: str) -> TacticalActions:
         for o in data.get("offers", []):
             try:
                 cq = str(o.get("claimed_quality", "Excellent"))
+                # widget_ids: list of seller's own widget IDs being committed.
+                # Either a list of strings or a single string. Default to
+                # empty list (engine will validate against inventory).
+                wids_raw = o.get("widget_ids", [])
+                if isinstance(wids_raw, str):
+                    widget_ids = [wids_raw]
+                elif isinstance(wids_raw, list):
+                    widget_ids = [str(w).strip() for w in wids_raw if w]
+                else:
+                    widget_ids = []
+                claim_rationale = str(o.get("claim_rationale", "")).strip()
                 actions.seller_offers.append(ParsedOffer(
                     to=str(o["to"]),
                     qty=int(o.get("qty", 0)),
                     claimed_quality=cq,
                     price_per_unit=float(o.get("price_per_unit", 0.0)),
+                    widget_ids=widget_ids,
+                    claim_rationale=claim_rationale,
                 ))
             except (KeyError, TypeError, ValueError):
                 pass

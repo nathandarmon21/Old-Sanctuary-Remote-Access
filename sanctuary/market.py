@@ -124,6 +124,9 @@ class SellerState:
     consecutive_inactive_days: int = 0
     production_costs_incurred: float = 0.0  # cumulative production costs paid
     starting_cash: float = 0.0  # set at market creation for net profit display
+    # Widget IDs reserved by pending offers — cannot be committed to a
+    # second offer. Cleared on offer accept/decline/expire.
+    reserved_widget_ids: set[str] = field(default_factory=set)
 
     def mint_widget(self, quality: str, production_cost: float,
                     day_produced: int) -> WidgetInstance:
@@ -184,11 +187,19 @@ class PendingOffer:
     """
     An offer placed by a seller, awaiting acceptance or rejection by the buyer.
 
-    Offers carry only the claimed quality at placement time. The actual
-    shipped quality is decided separately at acceptance time by the
-    fulfillment phase (see sanctuary.fulfillment). This decouples the
-    claim-quality and ship-quality decisions to remove the structural
-    adjacency cue in the tactical offer schema.
+    Post-redesign: offers commit specific seller-owned widget IDs at
+    placement time. `committed_widget_ids` lists exactly which physical
+    widgets will ship if the buyer accepts. Their actual quality is
+    fixed at placement and is ground truth for the resulting transaction.
+
+    The seller's CLAIM (`claimed_quality`) may still differ from those
+    widgets' true quality — that's where deception happens, but it's
+    now an explicit choice in the action JSON, not an emergent outcome
+    of inventory drift between offer placement and fulfillment.
+
+    `claim_rationale` (post-redesign): captures the seller's stated reason
+    for the claim choice when both qualities are in stock. Empty when the
+    seller has only one quality available (no choice to articulate).
     """
     offer_id: str
     seller: str
@@ -198,6 +209,8 @@ class PendingOffer:
     price_per_unit: float
     day_made: int
     status: str = "pending"  # pending | accepted | declined | expired
+    committed_widget_ids: list[str] = field(default_factory=list)
+    claim_rationale: str = ""
 
 
 @dataclass(frozen=True)
@@ -360,13 +373,25 @@ class MarketState:
         claimed_quality: str,
         price_per_unit: float,
         day: int,
+        widget_ids: list[str] | None = None,
+        claim_rationale: str = "",
     ) -> PendingOffer:
-        """
-        Validate and register a new offer from a seller to a buyer.
+        """Validate and register a new offer from a seller to a buyer.
 
-        The offer only carries claimed_quality at placement time. The
-        actual shipped quality is chosen at acceptance time by the
-        fulfillment phase.
+        Post-redesign behavior:
+          - `widget_ids`: list of seller-owned widget IDs to commit. Their
+            actual quality at acceptance time IS the shipped quality. The
+            claim may differ — that's where deception happens, explicitly.
+          - All committed IDs must exist in seller inventory, be unreserved,
+            and (for legibility) share the same actual quality.
+          - When `widget_ids` is None or empty AND seller's stock is
+            homogeneous (only one quality present), the engine auto-fills
+            with `quantity` IDs of that quality. When stock is
+            heterogeneous and no IDs are given, this raises — the seller
+            MUST commit specific IDs to disambiguate the claim choice.
+          - `claim_rationale` is the seller's stated reason for the claim
+            (logged but not validated here; the engine surfaces it in
+            transaction events for downstream analysis).
         """
         self._validate_offer_params(
             seller=seller,
@@ -376,6 +401,17 @@ class MarketState:
             quality_to_send=claimed_quality,  # provisional; unused downstream
             price_per_unit=price_per_unit,
         )
+
+        seller_state = self.sellers[seller]
+
+        # Resolve widget commitment.
+        committed_ids = self._resolve_widget_commitment(
+            seller_state, claimed_quality, quantity, widget_ids,
+        )
+
+        # Reserve them.
+        for wid in committed_ids:
+            seller_state.reserved_widget_ids.add(wid)
 
         offer_id = str(uuid.uuid4())
         offer = PendingOffer(
@@ -387,9 +423,98 @@ class MarketState:
             price_per_unit=price_per_unit,
             day_made=day,
             status="pending",
+            committed_widget_ids=committed_ids,
+            claim_rationale=claim_rationale,
         )
         self.pending_offers[offer_id] = offer
         return offer
+
+    def _resolve_widget_commitment(
+        self,
+        seller_state: SellerState,
+        claimed_quality: str,
+        quantity: int,
+        widget_ids: list[str] | None,
+    ) -> list[str]:
+        """Return the list of widget IDs to commit, validating and
+        auto-filling as needed. Raises MarketValidationError on conflict.
+
+        Legacy fallback: if a seller has positive `inventory` counts but
+        an empty `widget_instances` list (legacy test fixtures bypass the
+        mint path), this method returns [] — falling back to the old
+        post-acceptance fulfillment behavior. Production code paths
+        always have widget_instances populated by the engine's
+        production phase.
+        """
+        # Legacy back-compat: no widget_instances minted, just dict counts.
+        if not seller_state.widget_instances:
+            if widget_ids:
+                raise MarketValidationError(
+                    f"seller {seller_state.name!r} has no widget_instances "
+                    f"to commit; cannot accept widget_ids in legacy mode"
+                )
+            return []
+
+        # Index seller's available (unreserved) widgets by quality.
+        avail_by_q: dict[str, list[WidgetInstance]] = {"Excellent": [], "Poor": []}
+        for w in seller_state.widget_instances:
+            if w.id in seller_state.reserved_widget_ids:
+                continue
+            if w.quality in avail_by_q:
+                avail_by_q[w.quality].append(w)
+
+        if widget_ids:
+            # Caller explicitly committed IDs — validate all of them.
+            if len(widget_ids) != quantity:
+                raise MarketValidationError(
+                    f"widget_ids length ({len(widget_ids)}) must equal "
+                    f"quantity ({quantity})"
+                )
+            id_to_widget = {w.id: w for w in seller_state.widget_instances}
+            for wid in widget_ids:
+                w = id_to_widget.get(wid)
+                if w is None:
+                    raise MarketValidationError(
+                        f"widget_id {wid!r} not in seller {seller_state.name!r} inventory"
+                    )
+                if wid in seller_state.reserved_widget_ids:
+                    raise MarketValidationError(
+                        f"widget_id {wid!r} already reserved by another pending offer"
+                    )
+            # All committed IDs must share the same actual quality.
+            qualities = {id_to_widget[wid].quality for wid in widget_ids}
+            if len(qualities) > 1:
+                raise MarketValidationError(
+                    f"committed widget_ids must all share the same actual "
+                    f"quality; got {sorted(qualities)}. Place separate offers."
+                )
+            return list(widget_ids)
+
+        # No IDs given. If stock is homogeneous (or only one quality has
+        # supply), auto-fill from the available bucket. Otherwise refuse
+        # — the seller MUST disambiguate.
+        non_empty_q = [q for q, lst in avail_by_q.items() if lst]
+        if not non_empty_q:
+            raise MarketValidationError(
+                f"seller {seller_state.name!r} has no unreserved inventory"
+            )
+        if len(non_empty_q) > 1:
+            # Heterogeneous unreserved stock: claim choice is ambiguous.
+            counts = {q: len(avail_by_q[q]) for q in non_empty_q}
+            raise MarketValidationError(
+                f"seller {seller_state.name!r} has heterogeneous stock "
+                f"({counts}); offer must commit specific widget_ids to "
+                f"disambiguate which units it covers."
+            )
+        # Single quality available — auto-fill.
+        only_q = non_empty_q[0]
+        if len(avail_by_q[only_q]) < quantity:
+            raise MarketValidationError(
+                f"seller {seller_state.name!r} has only "
+                f"{len(avail_by_q[only_q])} unreserved {only_q} widgets, "
+                f"cannot ship {quantity}"
+            )
+        return [w.id for w in avail_by_q[only_q][:quantity]]
 
     def accept_offer(
         self, offer_id: str, revelation_day: int, day: int,
@@ -399,13 +524,37 @@ class MarketState:
         """
         Execute a pending offer: transfer widgets and cash, record transaction.
 
-        The fulfillment phase chooses `shipped_quality` and `widget_ids`
-        before this is called. If shipped_quality is not provided, it
-        defaults to the offer's claimed_quality (fail-safe to honesty).
+        Post-redesign: if the offer was placed with committed_widget_ids,
+        those IDs (and their actual quality) are ground truth — both
+        `shipped_quality` and `widget_ids` arguments are overridden. The
+        fulfillment LLM call is bypassed because the seller already
+        committed at offer placement. This is the change that closes
+        the FORCED/CONFABULATED gap.
+
+        For back-compat with offers placed without commitment (e.g. legacy
+        tests), the caller-supplied shipped_quality/widget_ids still
+        apply, defaulting to claimed_quality.
 
         revelation_day is sampled by the RevelationScheduler before this call.
         """
         offer = self._get_pending_offer(offer_id)
+        seller = self.sellers[offer.seller]
+
+        # If the offer carried a commitment, that's ground truth.
+        if offer.committed_widget_ids:
+            id_to_widget = {w.id: w for w in seller.widget_instances}
+            committed = offer.committed_widget_ids
+            # Determine shipped_quality from the actual qualities of
+            # those widgets (validated at placement to be homogeneous).
+            actual_qualities = {id_to_widget[wid].quality for wid in committed if wid in id_to_widget}
+            if not actual_qualities:
+                raise MarketValidationError(
+                    f"committed widgets for offer {offer_id!r} no longer in "
+                    f"seller inventory (corrupted state?)"
+                )
+            shipped_quality = next(iter(actual_qualities))
+            widget_ids = committed
+
         if shipped_quality is None:
             shipped_quality = offer.claimed_quality
         self._validate_offer_params(
@@ -418,16 +567,16 @@ class MarketState:
             check_buyer_funds=True,  # verify buyer can pay at acceptance time
         )
 
-        seller = self.sellers[offer.seller]
         buyer = self.buyers[offer.buyer]
         total_cost = offer.price_per_unit * offer.quantity
 
-        # Transfer inventory: if specific widget_ids were picked by the
-        # fulfillment phase, remove those by id; otherwise pop any
-        # matching-quality units.
+        # Transfer inventory: if specific widget_ids were picked (either by
+        # commitment or by fulfillment phase), remove those by id;
+        # otherwise pop any matching-quality units.
         if widget_ids:
             for wid in widget_ids:
                 seller.remove_widget(wid)
+                seller.reserved_widget_ids.discard(wid)
         else:
             seller.pop_widgets_of_quality(shipped_quality, offer.quantity)
 
@@ -469,6 +618,11 @@ class MarketState:
     def decline_offer(self, offer_id: str) -> None:
         offer = self._get_pending_offer(offer_id)
         offer.status = "declined"
+        # Free committed widgets so they can be re-listed.
+        if offer.committed_widget_ids and offer.seller in self.sellers:
+            seller = self.sellers[offer.seller]
+            for wid in offer.committed_widget_ids:
+                seller.reserved_widget_ids.discard(wid)
 
     def expire_stale_offers(self, current_day: int, max_age_days: int = 1) -> list[str]:
         """Expire offers that have been pending for too long. Returns expired offer IDs."""
@@ -476,6 +630,10 @@ class MarketState:
         for offer in self.pending_offers.values():
             if offer.status == "pending" and (current_day - offer.day_made) >= max_age_days:
                 offer.status = "expired"
+                if offer.committed_widget_ids and offer.seller in self.sellers:
+                    seller = self.sellers[offer.seller]
+                    for wid in offer.committed_widget_ids:
+                        seller.reserved_widget_ids.discard(wid)
                 expired.append(offer.offer_id)
         return expired
 
