@@ -769,6 +769,27 @@ class MarketState:
             costs[name] = round(cost, 4)
         return costs
 
+    def apply_daily_fixed_costs(self) -> dict[str, float]:
+        """
+        Deduct DAILY_FIXED_COST from every non-bankrupt agent. Charged
+        regardless of activity — represents rent, payroll, factory upkeep.
+
+        Returns {agent_name: amount_charged}. Bankrupt agents are skipped.
+        """
+        from sanctuary.economics import DAILY_FIXED_COST
+        charges: dict[str, float] = {}
+        for name, seller in self.sellers.items():
+            if seller.bankrupt:
+                continue
+            seller.cash -= DAILY_FIXED_COST
+            charges[name] = DAILY_FIXED_COST
+        for name, buyer in self.buyers.items():
+            if buyer.bankrupt:
+                continue
+            buyer.cash -= DAILY_FIXED_COST
+            charges[name] = DAILY_FIXED_COST
+        return charges
+
     def apply_buyer_quota_penalties(self) -> dict[str, float]:
         """
         Deduct daily quota penalty from all active buyers.

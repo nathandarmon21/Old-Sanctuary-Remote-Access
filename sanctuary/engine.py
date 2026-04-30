@@ -538,8 +538,19 @@ class SimulationEngine:
             self._daily_events[day].append(evt)
             self._curr_outcomes[name].append(f"Factory completed: {count} new factory(ies) now operational.")
 
-        # 2. Holding costs
+        # 2. Holding costs (per-unit, quadratic in inventory)
         self.market.apply_holding_costs()
+
+        # 2b. Daily fixed cost (rent/payroll/upkeep). Burn-rate pressure
+        # independent of inventory or transaction churn — drives the
+        # bankruptcy clock for inactive agents.
+        fixed_charges = self.market.apply_daily_fixed_costs()
+        if fixed_charges:
+            for name, amt in fixed_charges.items():
+                evt = self.run_dir.events.write_event(
+                    "daily_fixed_cost", day=day, agent_id=name, amount=amt,
+                )
+                self._daily_events[day].append(evt)
 
         # 3. Buyer quota penalties
         self.market.apply_buyer_quota_penalties()

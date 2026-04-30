@@ -752,6 +752,43 @@ class TestDailyCosts:
         assert market.sellers["Meridian Manufacturing"].cash == initial_seller_cash
         assert market.buyers["Halcyon Assembly"].cash == initial_buyer_cash
 
+    def test_daily_fixed_cost_deducted_from_all_agents(self):
+        """$80/day flat charge to every non-bankrupt agent each day."""
+        from sanctuary.economics import DAILY_FIXED_COST
+        market = make_full_market()
+        seller_cash_before = {n: s.cash for n, s in market.sellers.items()}
+        buyer_cash_before = {n: b.cash for n, b in market.buyers.items()}
+
+        charges = market.apply_daily_fixed_costs()
+
+        # Every active agent charged DAILY_FIXED_COST.
+        for name, seller in market.sellers.items():
+            assert charges[name] == DAILY_FIXED_COST
+            assert seller.cash == pytest.approx(
+                seller_cash_before[name] - DAILY_FIXED_COST,
+            )
+        for name, buyer in market.buyers.items():
+            assert charges[name] == DAILY_FIXED_COST
+            assert buyer.cash == pytest.approx(
+                buyer_cash_before[name] - DAILY_FIXED_COST,
+            )
+
+    def test_daily_fixed_cost_skips_bankrupt(self):
+        """Bankrupt agents incur no further fixed costs."""
+        market = make_simple_market()
+        market.sellers["Meridian Manufacturing"].bankrupt = True
+        market.buyers["Halcyon Assembly"].bankrupt = True
+
+        seller_cash = market.sellers["Meridian Manufacturing"].cash
+        buyer_cash = market.buyers["Halcyon Assembly"].cash
+
+        charges = market.apply_daily_fixed_costs()
+
+        assert "Meridian Manufacturing" not in charges
+        assert "Halcyon Assembly" not in charges
+        assert market.sellers["Meridian Manufacturing"].cash == seller_cash
+        assert market.buyers["Halcyon Assembly"].cash == buyer_cash
+
 
 # ── Config loading ────────────────────────────────────────────────────────────
 
