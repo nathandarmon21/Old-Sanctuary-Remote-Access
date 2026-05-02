@@ -51,6 +51,9 @@ cd "${SLURM_SUBMIT_DIR:-$PWD}"
 DRAFT_MODEL="${DRAFT_MODEL:-Qwen/Qwen2.5-0.5B-Instruct}"
 NUM_SPEC_TOKENS="${NUM_SPEC_TOKENS:-5}"
 
+# vLLM 0.11+ uses JSON --speculative-config (older flags were dropped).
+SPEC_CONFIG="{\"model\": \"${DRAFT_MODEL}\", \"num_speculative_tokens\": ${NUM_SPEC_TOKENS}}"
+
 echo "[$(date -u +%FT%TZ)] Starting vLLM..."
 python3 -m vllm.entrypoints.openai.api_server \
     --model "${MODEL_NAME}" \
@@ -60,8 +63,7 @@ python3 -m vllm.entrypoints.openai.api_server \
     --max-num-batched-tokens 16384 \
     --enable-prefix-caching \
     --enable-chunked-prefill \
-    --speculative-model "${DRAFT_MODEL}" \
-    --num-speculative-tokens ${NUM_SPEC_TOKENS} \
+    --speculative-config "${SPEC_CONFIG}" \
     --max-num-seqs "${VLLM_MAX_NUM_SEQS}" \
     --disable-log-stats \
     > "${VLLM_LOG}" 2>&1 &
