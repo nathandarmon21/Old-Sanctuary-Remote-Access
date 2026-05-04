@@ -58,14 +58,20 @@ cd "${SLURM_SUBMIT_DIR}"
 #       decode speedup. Vocabularies share the Qwen tokenizer family.
 DRAFT_MODEL="${DRAFT_MODEL:-Qwen/Qwen2.5-0.5B-Instruct}"
 NUM_SPEC_TOKENS="${NUM_SPEC_TOKENS:-5}"
+# Speculative decoding is opt-in. SPEC_DECODE=1 uses --speculative-config
+# (vLLM 0.11+ syntax); anything else launches vanilla. Default: OFF, so a
+# vLLM JSON-format change can't take down a whole queue cycle.
+SPEC_DECODE="${SPEC_DECODE:-0}"
 
-# vLLM 0.11+ replaced --speculative-model / --num-speculative-tokens with
-# the JSON --speculative-config flag. The "method": "draft" field tells
-# vLLM to use the named model as a draft for speculative decoding.
-SPEC_CONFIG="{\"model\": \"${DRAFT_MODEL}\", \"num_speculative_tokens\": ${NUM_SPEC_TOKENS}}"
+SPEC_ARGS=()
+if [ "${SPEC_DECODE}" = "1" ]; then
+    SPEC_ARGS=(--speculative-config "{\"model\": \"${DRAFT_MODEL}\", \"num_speculative_tokens\": ${NUM_SPEC_TOKENS}}")
+    echo "[$(date -u +%FT%TZ)] speculative decoding: ENABLED with ${DRAFT_MODEL}"
+else
+    echo "[$(date -u +%FT%TZ)] speculative decoding: OFF (set SPEC_DECODE=1 to enable)"
+fi
 
 echo "[$(date -u +%FT%TZ)] Launching vLLM server..."
-echo "[$(date -u +%FT%TZ)] speculative-config: ${SPEC_CONFIG}"
 python3 -m vllm.entrypoints.openai.api_server \
     --model "${MODEL_NAME}" \
     --port ${VLLM_PORT} \
@@ -73,7 +79,7 @@ python3 -m vllm.entrypoints.openai.api_server \
     --max-model-len 32768 \
     --max-num-batched-tokens 16384 \
     --enable-prefix-caching \
-    --speculative-config "${SPEC_CONFIG}" \
+    "${SPEC_ARGS[@]}" \
     --disable-log-stats \
     > "${VLLM_LOG}" 2>&1 &
 VLLM_PID=$!
