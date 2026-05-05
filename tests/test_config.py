@@ -43,38 +43,29 @@ class TestConfigLoading:
         assert isinstance(config, SimulationConfig)
 
     def test_long_horizon_d12_vllm_loads(self):
-        """The redesigned 100-day reputation experiment config validates
-        and has the post-redesign parameters wired up correctly.
-
-        Headline redesign values (vs. the prior 150-day config):
-          - 100 days, defect 0.07, bankruptcy at 0
-          - Final-good prices 52/25 (yields V_E=$42, V_P=$15 buyer-side)
-          - Tighter starting cash so the $80/day fixed-cost burn bites
-        """
+        """Tier-A 75-day reputation experiment config: validate the
+        redesigned headline parameters."""
         config = load_config(_CONFIGS_DIR / "long_horizon_d12_vllm.yaml")
-        assert config.run.days == 100
+        assert config.run.days == 75
         assert config.run.multi_round_negotiation is True
         assert config.run.max_negotiation_rounds == 4
         assert config.run.checkpoint_interval == 10
-        # Strategic every 7 days, starting at day 1.
         assert config.run.strategic_tier_days[0] == 1
         assert all(
             (b - a) == 7
             for a, b in zip(config.run.strategic_tier_days,
                             config.run.strategic_tier_days[1:])
         )
-        # 6+6 agents.
         assert len(config.agents.sellers) == 6
         assert len(config.agents.buyers) == 6
-        # Redesigned margin gradient.
         assert config.economics.final_good_base_price_excellent == 52.0
         assert config.economics.final_good_base_price_poor == 25.0
         assert config.economics.production_defect_rate == 0.07
         assert config.economics.bankruptcy_threshold == 0.0
-        # Tightened starting cash; top-of-stack down from 7500 to 3500.
-        assert config.economics.seller_starting_cash[0] == 3500.0
+        # Tier-A: longer runway for sustainable markets.
+        assert config.economics.seller_starting_cash[0] == 5000.0
+        assert config.economics.seller_starting_cash[-1] == 3000.0
         assert len(config.economics.seller_starting_cash) == 6
-        # vLLM Qwen 2.5 32B AWQ both tiers.
         assert config.models.strategic.model == "Qwen/Qwen2.5-32B-Instruct-AWQ"
         assert config.models.tactical.model == "Qwen/Qwen2.5-32B-Instruct-AWQ"
 
