@@ -278,7 +278,10 @@ class SimulationEngine:
                 + [bc.name for bc in config.agents.buyers]
             )
         }
-        self._transactions_today: set[str] = set()  # agents who transacted today
+        # Maps agent_name -> number of transactions completed this day.
+        # Capped at MAX_TRANSACTIONS_PER_AGENT_PER_DAY. Reset at day start;
+        # checkpointed so resume picks up correctly mid-day.
+        self._transactions_today: dict[str, int] = {}
         self._prev_day_messages: dict[str, list[dict[str, str]]] = {
             n: [] for n in self.agents
         }  # messages received on the previous day, per agent
@@ -321,7 +324,7 @@ class SimulationEngine:
                 "prev_day_messages": self._prev_day_messages,
                 "prev_outcomes": self._prev_outcomes,
                 "curr_outcomes": self._curr_outcomes,
-                "transactions_today": list(self._transactions_today),
+                "transactions_today": dict(self._transactions_today),
                 "inactivity_consecutive": dict(self.inactivity._consecutive),
             }
             agent_states = {
@@ -396,7 +399,15 @@ class SimulationEngine:
             n: list(es.get("curr_outcomes", {}).get(n, []))
             for n in self.agents
         }
-        self._transactions_today = set(es.get("transactions_today", []))
+        # Back-compat: older snapshots stored a list (set); coerce to dict
+        # by treating each entry as count=1.
+        raw = es.get("transactions_today", {})
+        if isinstance(raw, list):
+            self._transactions_today = {n: 1 for n in raw}
+        elif isinstance(raw, dict):
+            self._transactions_today = {n: int(c) for n, c in raw.items()}
+        else:
+            self._transactions_today = {}
 
         consec = es.get("inactivity_consecutive", {})
         for n in self.agents:
@@ -527,7 +538,7 @@ class SimulationEngine:
         # Rotate outcome buffers
         self._prev_outcomes = dict(self._curr_outcomes)
         self._curr_outcomes = {n: [] for n in self.agents}
-        self._transactions_today = set()
+        self._transactions_today = {}
 
         # 1. Factory completions
         completions = self.market.process_factory_completions(day)
@@ -1529,11 +1540,11 @@ class SimulationEngine:
 
     def _try_accept_offer(self, offer_id: str, buyer_name: str, day: int) -> bool:
         """Attempt to accept an offer. Returns True on success."""
-        # Check 1-transaction-per-day limit
-        if buyer_name in self._transactions_today:
+        # Daily transaction-count cap (per-agent).
+        if self._transactions_today.get(buyer_name, 0) >= MAX_TRANSACTIONS_PER_AGENT_PER_DAY:
             self._curr_outcomes[buyer_name].append(
-                f"Accept offer {offer_id}: FAILED (already transacted today, limit is "
-                f"{MAX_TRANSACTIONS_PER_AGENT_PER_DAY} per day)"
+                f"Accept offer {offer_id}: FAILED (already at "
+                f"{MAX_TRANSACTIONS_PER_AGENT_PER_DAY} transactions today)"
             )
             return False
 
@@ -1551,10 +1562,10 @@ class SimulationEngine:
             )
             return False
 
-        # Check seller transaction limit too
-        if offer.seller in self._transactions_today:
+        # Same cap on the seller side.
+        if self._transactions_today.get(offer.seller, 0) >= MAX_TRANSACTIONS_PER_AGENT_PER_DAY:
             self._curr_outcomes[buyer_name].append(
-                f"Accept offer {offer_id}: FAILED (seller already transacted today)"
+                f"Accept offer {offer_id}: FAILED (seller at daily transaction cap)"
             )
             return False
 
@@ -1712,8 +1723,8 @@ class SimulationEngine:
                 self.agents[offer.seller].record_interaction(day, buyer_name, "offer_accepted")
 
             # Track transactions today
-            self._transactions_today.add(buyer_name)
-            self._transactions_today.add(offer.seller)
+            self._transactions_today[buyer_name] = self._transactions_today.get(buyer_name, 0) + 1
+            self._transactions_today[offer.seller] = self._transactions_today.get(offer.seller, 0) + 1
 
             # Mark both active
             self.inactivity.mark_active(buyer_name)

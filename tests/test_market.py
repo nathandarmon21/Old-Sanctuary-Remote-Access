@@ -797,8 +797,7 @@ class TestFinancialPositionAlarm:
 
     def test_no_alarm_when_cashflow_positive(self):
         market = make_simple_market(seller_cash=5000.0)
-        # No transactions, no costs incurred yet, so per_day operating margin
-        # is 0 on day 1 -> burn = $80/day -> runway = 62 days, no alarm.
+        # Tier-A: $25/day fixed cost -> 5000/25 = 200-day runway, no alarm.
         pos = market.build_financial_position(
             "Meridian Manufacturing", day=1, days_total=100,
         )
@@ -806,8 +805,8 @@ class TestFinancialPositionAlarm:
         assert "INSOLVENCY WARNING" not in pos["position_text"]
 
     def test_alarm_fires_when_runway_short(self):
-        # Cash $400 with $80/day fixed cost => 5 days runway; alarm fires.
-        market = make_simple_market(seller_cash=400.0)
+        # Cash $100 with $25/day fixed cost => 4 days runway; alarm fires.
+        market = make_simple_market(seller_cash=100.0)
         pos = market.build_financial_position(
             "Meridian Manufacturing", day=10, days_total=100,
         )
@@ -832,7 +831,7 @@ class TestFinancialPositionAlarm:
             "Meridian Manufacturing", day=1, days_total=100,
         )
         assert "Daily fixed cost" in pos["position_text"]
-        assert "$80.00" in pos["position_text"]
+        assert "$25.00" in pos["position_text"]
 
 
 # ── Config loading ────────────────────────────────────────────────────────────

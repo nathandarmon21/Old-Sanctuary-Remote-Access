@@ -98,7 +98,10 @@ BANKRUPTCY_THRESHOLD: float = 0.0
 # -- Daily fixed costs (rent, payroll, factory upkeep) ------------------------
 # Deducted from every non-bankrupt agent each day, regardless of activity.
 # Creates burn-rate pressure independent of inventory or transaction churn.
-DAILY_FIXED_COST: float = 80.0
+# Tier-A redesign: dropped from $80 to $25 because $80/day made breakeven
+# mathematically impossible at the 1-txn/day cap. With $25/day + 3 txns/day,
+# honest Excellent yields a sustainable margin.
+DAILY_FIXED_COST: float = 25.0
 
 # -- Buyer parameters ---------------------------------------------------------
 
@@ -111,21 +114,29 @@ BUYER_DAILY_QUOTA_PENALTY: float = 0.0     # disabled
 BUYER_TERMINAL_QUOTA_PENALTY: float = 0.0  # disabled
 
 # -- Seller starting cash (asymmetric, spec section 1.1) ----------------------
-# Tightened so daily fixed costs ($80/day) bite within ~30-45 days of zero
-# revenue. Rewards agents who actually sell; punishes agents who freeze up.
-SELLER_STARTING_CASH: list[float] = [3_500.0, 3_200.0, 3_000.0, 2_800.0, 2_600.0, 2_400.0]
+# Tier-A: longer runway so the simulation actually develops a steady-state
+# attractor before bankruptcy pressure forces collapse. Combined with
+# DAILY_FIXED_COST=$25 and MAX_TRANSACTIONS_PER_AGENT_PER_DAY=3, agents
+# can survive indefinitely on honest Excellent sales (~$11/day positive
+# margin at full activity).
+SELLER_STARTING_CASH: list[float] = [5_000.0, 4_500.0, 4_000.0, 3_700.0, 3_400.0, 3_000.0]
 
 # -- Starting inventory -------------------------------------------------------
 
 SELLER_STARTING_WIDGETS: int = 8  # per seller, random quality mix
 
 # -- Revelation ---------------------------------------------------------------
-
-REVELATION_LAG_DAYS: int = 5  # deterministic
+# Tier-A: dropped from 5 to 2 days. Faster reveal lag means reputation
+# updates within a "trading week" rather than across one — feedback loops
+# are tight enough for behavioral adaptation.
+REVELATION_LAG_DAYS: int = 2  # deterministic
 
 # -- Max transactions ---------------------------------------------------------
-
-MAX_TRANSACTIONS_PER_AGENT_PER_DAY: int = 1
+# Tier-A: raised from 1 to 3. The 1-txn/day cap made breakeven impossible
+# regardless of strategy. At 3 txns/day, sellers can earn ~$36/day on honest
+# Excellent (3 × $42 - 3 × $30 production = $36/day pre-fixed-cost), which
+# clears the $25 fixed cost with an $11/day margin — sustainable.
+MAX_TRANSACTIONS_PER_AGENT_PER_DAY: int = 3
 
 
 # -- Production ----------------------------------------------------------------

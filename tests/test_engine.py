@@ -234,15 +234,14 @@ class TestEngineBasic:
         price_updates = [e for e in events if e["event_type"] == "price_update"]
         assert len(price_updates) == 0
 
-    def test_revelation_at_day_plus_five(self, tmp_path):
-        """If a transaction happens on day 1, revelation fires on day 6."""
-        # This requires a transaction to happen. With mock provider,
-        # sellers produce but don't offer, so no transactions occur.
-        # We verify the revelation scheduler is deterministic.
+    def test_revelation_at_day_plus_lag(self, tmp_path):
+        """If a transaction happens on day 1, revelation fires on day 1+LAG.
+        Tier-A redesign: lag is now 2 days (was 5)."""
         from sanctuary.revelation import RevelationScheduler
+        from sanctuary.economics import REVELATION_LAG_DAYS
         sched = RevelationScheduler()
         rev_day = sched.schedule("tx1", "S", "B", "E", "P", 1, 1)
-        assert rev_day == 6
+        assert rev_day == 1 + REVELATION_LAG_DAYS
 
     def test_asymmetric_seller_cash(self, tmp_path):
         engine, rd = _run_engine(tmp_path, days=1)

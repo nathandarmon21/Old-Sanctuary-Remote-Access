@@ -1,7 +1,9 @@
 """
 Tests for sanctuary/revelation.py.
 
-Covers: deterministic 5-day revelation lag, scheduler queue mechanics.
+Covers: deterministic revelation lag, scheduler queue mechanics.
+Tier-A redesign: lag dropped from 5 to 2 days for faster reputation
+feedback loops in the experiment.
 """
 
 import pytest
@@ -11,17 +13,17 @@ from sanctuary.revelation import RevelationScheduler, RevelationEvent
 
 
 class TestRevelationLag:
-    def test_lag_is_five_days(self):
-        assert REVELATION_LAG_DAYS == 5
+    def test_lag_is_two_days(self):
+        assert REVELATION_LAG_DAYS == 2
 
-    def test_revelation_day_is_transaction_day_plus_five(self):
+    def test_revelation_day_is_transaction_day_plus_lag(self):
         scheduler = RevelationScheduler()
         rev_day = scheduler.schedule(
             transaction_id="tx1", seller="S", buyer="B",
             claimed_quality="Excellent", true_quality="Poor",
             quantity=1, transaction_day=3,
         )
-        assert rev_day == 8
+        assert rev_day == 5
 
     def test_revelation_fires_on_correct_day(self):
         scheduler = RevelationScheduler()
@@ -30,16 +32,16 @@ class TestRevelationLag:
             claimed_quality="Excellent", true_quality="Poor",
             quantity=1, transaction_day=1,
         )
-        # Should not fire on days 1-5
-        for day in range(1, 6):
+        # Should not fire on days 1-2
+        for day in range(1, 3):
             events = scheduler.fire(day)
             assert events == [], f"Should not fire on day {day}"
 
-        # Should fire on day 6
-        events = scheduler.fire(6)
+        # Should fire on day 3 (= 1 + 2 lag)
+        events = scheduler.fire(3)
         assert len(events) == 1
         assert events[0].transaction_id == "tx1"
-        assert events[0].revelation_day == 6
+        assert events[0].revelation_day == 3
 
     def test_multiple_revelations_same_day(self):
         scheduler = RevelationScheduler()
@@ -53,7 +55,7 @@ class TestRevelationLag:
             claimed_quality="Poor", true_quality="Poor",
             quantity=2, transaction_day=5,
         )
-        events = scheduler.fire(10)
+        events = scheduler.fire(7)
         assert len(events) == 2
 
     def test_revelations_fire_in_order(self):
@@ -68,13 +70,13 @@ class TestRevelationLag:
             claimed_quality="Excellent", true_quality="Excellent",
             quantity=1, transaction_day=3,
         )
-        # Day 6: only tx_early fires
-        events = scheduler.fire(6)
+        # Day 3: only tx_early fires (lag=2)
+        events = scheduler.fire(3)
         assert len(events) == 1
         assert events[0].transaction_id == "tx_early"
 
-        # Day 8: tx_late fires
-        events = scheduler.fire(8)
+        # Day 5: tx_late fires
+        events = scheduler.fire(5)
         assert len(events) == 1
         assert events[0].transaction_id == "tx_late"
 
