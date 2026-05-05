@@ -552,9 +552,9 @@ class TestRetroactiveAdjustment:
 
     def _cheat_scenario(self) -> tuple[MarketState, str]:
         """
-        Set up a scenario where seller claims Excellent but sends Poor,
-        buyer produces final goods, then revelation fires.
-        Returns (market, transaction_id).
+        Tier-A: seller claims Excellent but commits Poor — the deception
+        choice is now explicit in the action JSON. Buyer produces, then
+        revelation fires.
         """
         market = make_simple_market(seller_excellent=0, seller_poor=4)
         offer = market.place_offer(
@@ -562,15 +562,12 @@ class TestRetroactiveAdjustment:
             buyer="Halcyon Assembly",
             quantity=3,
             claimed_quality="Excellent",   # lie
+            committed_quality="Poor",       # actual ship
             price_per_unit=50.0,
             day=1,
+            claim_rationale="Deception test scenario.",
         )
-        # Under the fulfillment-phase architecture, shipped_quality is
-        # chosen at acceptance time (not offer time). Passing Poor here
-        # simulates the seller's fulfillment decision to ship Poor.
-        tx = market.accept_offer(
-            offer.offer_id, revelation_day=5, day=1, shipped_quality="Poor",
-        )
+        tx = market.accept_offer(offer.offer_id, revelation_day=3, day=1)
         return market, tx.transaction_id
 
     def test_buyer_initially_credited_at_claimed_quality(self):
@@ -659,13 +656,12 @@ class TestRetroactiveAdjustment:
             seller="Meridian Manufacturing",
             buyer="Halcyon Assembly",
             quantity=2,
-            claimed_quality="Excellent", price_per_unit=50.0,
-            day=1,
+            claimed_quality="Excellent",
+            committed_quality="Poor",  # Tier-A: explicit deception declaration
+            price_per_unit=50.0, day=1,
+            claim_rationale="Test scenario: retroactive adjustment.",
         )
-        # Seller has only Poor inventory so fulfillment ships Poor.
-        tx = market.accept_offer(
-            offer.offer_id, revelation_day=5, day=1, shipped_quality="Poor",
-        )
+        tx = market.accept_offer(offer.offer_id, revelation_day=3, day=1)
 
         # Produce goods at current prices (Excellent=$80, Poor=$45)
         market.execute_buyer_production("Halcyon Assembly", quantity=2, current_day=2)

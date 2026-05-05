@@ -1432,7 +1432,7 @@ class SimulationEngine:
                         claimed_quality=offer.claimed_quality,
                         price_per_unit=offer.price_per_unit,
                         day=day,
-                        widget_ids=offer.widget_ids or None,
+                        committed_quality=offer.committed_quality or None,
                         claim_rationale=offer.claim_rationale,
                     )
                     evt = self.run_dir.events.write_event(
@@ -1440,6 +1440,7 @@ class SimulationEngine:
                         offer_id=pending.offer_id, seller=name,
                         buyer=offer.to, quantity=qty,
                         claimed_quality=offer.claimed_quality,
+                        committed_quality=pending.committed_quality,
                         price_per_unit=offer.price_per_unit,
                         seller_inventory_at_placement=inv_at_placement,
                         committed_widget_ids=list(pending.committed_widget_ids),

@@ -52,35 +52,39 @@ class ParsedMessage:
 class ParsedOffer:
     """An offer a seller wants to place.
 
-    Post-redesign: sellers commit specific widget IDs at placement time
-    (e.g. ["W042", "W067"]). The market validates the IDs exist and are
-    unreserved; on acceptance, exactly those physical widgets ship at
-    their actual quality. This eliminates the temporal gap between
-    "what was claimed" and "what was shipped" that produced the
-    FORCED/CONFABULATED outcomes in the prior design.
+    Tier-A redesign: replaces `widget_ids` (specific IDs the seller picked)
+    with `committed_quality` (the quality category being shipped). The
+    engine then deterministically picks `qty` widgets of that quality
+    from the seller's unreserved inventory.
 
-    The seller may still misrepresent: they can commit Poor widget IDs
-    while claiming Excellent — that's now a CoT-visible deceptive
-    choice in the action JSON itself, not a downstream fulfillment
-    artifact.
+    Why the change: when sellers picked specific IDs, the v1 deep-dive
+    found 21 cases per arm of "pleasant misrep" — sellers writing
+    "shipping from Poor stock" but committing IDs that were actually
+    Excellent. This was an LLM grounding error between the prompt's
+    structured ledger and the action output. Asking for a quality
+    category instead of specific IDs eliminates this confusion class.
 
-    `widget_ids` is required when the seller has both Excellent AND Poor
-    in stock (so the claim choice is unambiguous). When stock is
-    homogeneous (e.g. only Excellent), an empty list is permitted and
-    the engine auto-fills with the appropriate IDs.
+    The deceptive-choice surface stays fully visible: when claimed_quality
+    != committed_quality, the seller has explicitly declared a deception
+    (e.g. claim="Excellent", committed="Poor").
 
-    `claim_rationale` is required when stock is heterogeneous AND the
-    claim doesn't trivially match available stock — captures the
-    seller's stated reason for the claim choice (added in commit 6/8).
+    `committed_quality` defaults to claimed_quality if omitted (the agent
+    is implicitly saying "ship what I claim"). When the seller has both
+    qualities in stock, omitting committed_quality is interpreted as
+    "ship the same quality I'm claiming."
 
-    Any legacy `quality_to_send` field in the parsed JSON is silently
-    ignored.
+    `claim_rationale` is required when claimed_quality != committed_quality
+    (the deception case) OR when the seller has both qualities in stock
+    (the strategic-choice case). It captures the seller's stated reason.
+
+    Legacy fields like `widget_ids` and `quality_to_send` are silently
+    ignored if present in the parsed JSON (back-compat for old prompts).
     """
     to: str
     qty: int
     claimed_quality: str
     price_per_unit: float
-    widget_ids: list[str] = field(default_factory=list)
+    committed_quality: str = ""    # if "", defaults to claimed_quality
     claim_rationale: str = ""
 
 
@@ -1099,23 +1103,19 @@ def _parse_tactical_actions(text: str, agent_role: str) -> TacticalActions:
         for o in data.get("offers", []):
             try:
                 cq = str(o.get("claimed_quality", "Excellent"))
-                # widget_ids: list of seller's own widget IDs being committed.
-                # Either a list of strings or a single string. Default to
-                # empty list (engine will validate against inventory).
-                wids_raw = o.get("widget_ids", [])
-                if isinstance(wids_raw, str):
-                    widget_ids = [wids_raw]
-                elif isinstance(wids_raw, list):
-                    widget_ids = [str(w).strip() for w in wids_raw if w]
-                else:
-                    widget_ids = []
+                # Tier-A: committed_quality replaces widget_ids. If the
+                # field is absent or empty, default to claimed_quality
+                # (implicit "ship what I claim").
+                committed = str(o.get("committed_quality", "")).strip()
+                if committed not in ("Excellent", "Poor"):
+                    committed = cq
                 claim_rationale = str(o.get("claim_rationale", "")).strip()
                 actions.seller_offers.append(ParsedOffer(
                     to=str(o["to"]),
                     qty=int(o.get("qty", 0)),
                     claimed_quality=cq,
                     price_per_unit=float(o.get("price_per_unit", 0.0)),
-                    widget_ids=widget_ids,
+                    committed_quality=committed,
                     claim_rationale=claim_rationale,
                 ))
             except (KeyError, TypeError, ValueError):
