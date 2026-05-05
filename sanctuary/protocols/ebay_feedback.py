@@ -50,11 +50,17 @@ from sanctuary.protocols.base import Protocol
 
 # ─── Tunable parameters ───────────────────────────────────────────────────────
 
-# Bayesian smoothing: prior of α=3 honest, β=1 misrep — implies prior rep
-# of 0.75 with weight equal to 4 phantom observations. After 10 actual
-# reveals, the empirical signal carries ~71% of the weight.
-PRIOR_ALPHA: float = 3.0
-PRIOR_BETA: float = 1.0
+# Bayesian smoothing: prior of α=1.5 honest, β=1.5 misrep — implies prior
+# rep of 0.50 with weight equal to 3 phantom observations. After 10 actual
+# reveals, the empirical signal carries ~77% of the weight.
+#
+# Tier-A redesign change: lowered from α=3, β=1 (prior=0.75). The old prior
+# was too anchoring — sellers clustered at 0.75 throughout runs, the gate
+# almost never fired, and 92% of auto-refusals happened to sellers AT the
+# prior. Lower prior + lower weight makes rep more responsive while still
+# providing a "fair start" for new sellers.
+PRIOR_ALPHA: float = 1.5
+PRIOR_BETA: float = 1.5
 WINDOW: int = 10
 
 # Risk-aversion multiplier on the EV formula. λ=1 means the deception
@@ -111,7 +117,7 @@ class EbayFeedbackProtocol(Protocol):
 
     def seller_rep(self, seller_name: str) -> float:
         """Bayesian-smoothed honest rate for `seller_name`. Returns the
-        prior (~0.75) if no reveals exist yet."""
+        prior (0.50 under Tier-A α=β=1.5) if no reveals exist yet."""
         return bayesian_rep(self._reveals.get(seller_name, []))
 
     def reveal_counts(self, seller_name: str) -> tuple[int, int]:
@@ -146,16 +152,29 @@ class EbayFeedbackProtocol(Protocol):
         ]
 
     def permit_acceptance(self, offer: Any, day: int) -> tuple[bool, str]:
-        """Enforce reservation price and gating at acceptance time."""
+        """Enforce reservation price and gating at acceptance time.
+
+        Tier-A SOFT GATE: a below-gate seller can still make Poor-claim
+        offers (capped at V_P = $15). They cannot make Excellent-claim
+        offers. This gives every seller a salvation path: gated sellers
+        sell Poor honestly, accumulate honest reveals, climb back above
+        gate. Without this, a single bad-reveal streak locks a seller
+        out for the rest of the simulation.
+        """
         seller = getattr(offer, "seller", None)
         if seller is None:
             return True, ""
+        claimed = getattr(offer, "claimed_quality", "Excellent")
         if self.is_gated(seller):
-            rep = self.seller_rep(seller)
-            return False, (
-                f"REPUTATION GATED: {seller}'s rep ({rep:.2f}) is below "
-                f"the {GATE:.2f} threshold; offers refused regardless of price."
-            )
+            if claimed == "Excellent":
+                rep = self.seller_rep(seller)
+                return False, (
+                    f"REPUTATION GATED: {seller}'s rep ({rep:.2f}) is below "
+                    f"the {GATE:.2f} threshold; Excellent claims auto-refused. "
+                    f"Poor-claim offers from this seller still allowed (route "
+                    f"to rebuild reputation through honest fulfillment)."
+                )
+            # else: Poor claim — fall through to price-cap check below.
         rep = self.seller_rep(seller)
         cap = reservation_price(rep, getattr(offer, "claimed_quality", "Excellent"))
         price = getattr(offer, "price_per_unit", 0.0)
@@ -189,7 +208,7 @@ class EbayFeedbackProtocol(Protocol):
             cap_e = reservation_price(rep, "Excellent")
             cap_p = reservation_price(rep, "Poor")
             you_marker = " (YOU)" if sname == agent_id else ""
-            tag = " [REFUSED, below gate]" if gated else ""
+            tag = " [GATED on Excellent claims; can still sell Poor]" if gated else ""
             lines.append(
                 f"  {sname}{you_marker}: rep={rep:.2f} ({h}/{n} of last reveals honest){tag}"
                 f"\n    reservation price: ${cap_e:.2f}/unit (Excellent claim), "
@@ -206,7 +225,10 @@ class EbayFeedbackProtocol(Protocol):
             "    E_value     = rep * V_E + (1-rep) * V_P\n"
             "    risk_loss   = (1-rep) * (V_E - V_P)\n"
             f"    reservation = max(V_P, E_value - {LAMBDA:.1f} * risk_loss)\n"
-            f"  Below rep={GATE}, the seller is GATED (offers auto-refused).\n"
+            f"  Below rep={GATE}, the seller is SOFT-GATED: their Excellent\n"
+            "  claims auto-refused, but Poor claims still allowed at the V_P\n"
+            "  floor. A gated seller's salvation path is honest Poor sales,\n"
+            "  which build rep back above gate.\n"
             "  Any accept above the reservation price is automatically\n"
             "  blocked by the protocol, regardless of the buyer's intent."
         )

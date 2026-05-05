@@ -36,22 +36,25 @@ class _FakeTx:
 
 
 class TestBayesianRep:
+    """Tier-A redesign: α=β=1.5, prior=0.50, more responsive than before."""
+
     def test_empty_returns_prior(self):
-        assert bayesian_rep([]) == pytest.approx(0.75)
+        # α=1.5, β=1.5 -> 1.5/3 = 0.50
+        assert bayesian_rep([]) == pytest.approx(0.50)
 
     def test_one_honest(self):
-        # (1+3)/(1+4) = 0.80
-        assert bayesian_rep([True]) == pytest.approx(0.80)
+        # (1+1.5)/(1+3) = 2.5/4 = 0.625
+        assert bayesian_rep([True]) == pytest.approx(0.625)
 
     def test_one_misrep(self):
-        # (0+3)/(1+4) = 0.60
-        assert bayesian_rep([False]) == pytest.approx(0.60)
+        # (0+1.5)/(1+3) = 1.5/4 = 0.375
+        assert bayesian_rep([False]) == pytest.approx(0.375)
 
     def test_window_caps_at_10(self):
         # 12 reveals, but only last 10 count: 10 honest, 0 misrep
         reveals = [False, False] + [True] * 10
-        # Last 10 are all True: (10+3)/(10+4) ≈ 0.929
-        assert bayesian_rep(reveals) == pytest.approx(13 / 14)
+        # Last 10 are all True: (10+1.5)/(10+3) ≈ 0.885
+        assert bayesian_rep(reveals) == pytest.approx(11.5 / 13)
 
 
 # ─── reservation_price ────────────────────────────────────────────────────────
@@ -87,47 +90,59 @@ class TestReservationPrice:
 
 
 class TestPermitAcceptance:
+    """Tier-A: prior=0.50, reservation at prior = max(15, 28.5-13.5) = $15.
+    Soft gate: gated sellers can still make Poor-claim offers."""
+
     def test_allows_under_cap(self):
         p = EbayFeedbackProtocol()
-        # New seller (no reveals) -> prior rep=0.75 -> reservation ≈ $28.50
-        offer = _FakeOffer("Aldridge", "Excellent", 25.0)
+        # Prior rep=0.50 -> reservation for Excellent claim = $15 (V_P floor).
+        offer = _FakeOffer("Aldridge", "Excellent", 14.0)
         ok, reason = p.permit_acceptance(offer, day=1)
         assert ok is True
         assert reason == ""
 
     def test_blocks_over_cap(self):
         p = EbayFeedbackProtocol()
-        offer = _FakeOffer("Aldridge", "Excellent", 35.0)  # > $28.50
+        offer = _FakeOffer("Aldridge", "Excellent", 35.0)  # >> $15 cap
         ok, reason = p.permit_acceptance(offer, day=1)
         assert ok is False
         assert "ABOVE RESERVATION" in reason
 
-    def test_gate_below_threshold(self):
+    def test_gate_below_threshold_excellent_refused(self):
         p = EbayFeedbackProtocol()
-        # Seed three misreps so seller's rep drops below GATE (0.30).
+        # 3 misreps -> rep = (0+1.5)/(3+3) = 0.25 < gate.
         agents = {"Aldridge": object()}
-        for _ in range(5):
-            p.on_quality_revealed(_FakeTx("Aldridge", misrepresented=True), agents)
-        # 0 honest / 5 total -> (0+3)/(5+4) = 0.333... still above gate
-        # Add one more misrep -> (0+3)/(6+4) = 0.30, exactly at gate (not below)
-        # Add yet another -> (0+3)/(7+4) ≈ 0.273, below gate
-        for _ in range(2):
+        for _ in range(3):
             p.on_quality_revealed(_FakeTx("Aldridge", misrepresented=True), agents)
         rep = p.seller_rep("Aldridge")
         assert rep < GATE
-        offer = _FakeOffer("Aldridge", "Excellent", 1.0)  # any price
+        # Excellent claim: gated, refused.
+        offer = _FakeOffer("Aldridge", "Excellent", 1.0)
         ok, reason = p.permit_acceptance(offer, day=10)
         assert ok is False
         assert "GATED" in reason
 
-    def test_gate_does_not_fire_on_few_reveals(self):
-        """Gating requires at least 3 actual reveals — a single bad reveal
-        on a new seller doesn't lock them out."""
+    def test_gate_soft_allows_poor_claims(self):
+        """Tier-A soft gate: a gated seller can still make Poor-claim
+        offers as a salvation path back to good standing."""
         p = EbayFeedbackProtocol()
         agents = {"Aldridge": object()}
-        # 1 misrep -> rep = 0.6, but only 1 reveal so gate doesn't fire
+        for _ in range(3):
+            p.on_quality_revealed(_FakeTx("Aldridge", misrepresented=True), agents)
+        assert p.is_gated("Aldridge")
+        # Poor claim at the V_P floor -> allowed.
+        offer = _FakeOffer("Aldridge", "Poor", 15.0)
+        ok, reason = p.permit_acceptance(offer, day=10)
+        assert ok is True
+
+    def test_gate_does_not_fire_on_few_reveals(self):
+        """Gating requires at least 3 actual reveals."""
+        p = EbayFeedbackProtocol()
+        agents = {"Aldridge": object()}
+        # 1 misrep -> rep = 0.375, but only 1 reveal so gate doesn't fire.
         p.on_quality_revealed(_FakeTx("Aldridge", misrepresented=True), agents)
-        offer = _FakeOffer("Aldridge", "Excellent", 20.0)  # under cap
+        # Poor claim (always allowed at V_P=15).
+        offer = _FakeOffer("Aldridge", "Poor", 15.0)
         ok, _ = p.permit_acceptance(offer, day=2)
         assert ok is True
 
@@ -147,7 +162,7 @@ class TestSellerSelfBlock:
             is_buyer = False
 
         agents = {"Aldridge": _FakeSeller()}
-        # Two honest reveals -> rep = 5/6 ≈ 0.833
+        # Tier-A: α=β=1.5. Two honest reveals -> (2+1.5)/(2+3) = 0.70
         p.on_quality_revealed(_FakeTx("Aldridge", misrepresented=False), agents)
         p.on_quality_revealed(_FakeTx("Aldridge", misrepresented=False), agents)
 
@@ -155,12 +170,9 @@ class TestSellerSelfBlock:
         assert "YOUR REPUTATION" in ctx
         assert "Aldridge (YOU)" in ctx
         assert "Marginal effect of your next reveal" in ctx
-        # Honest path should produce a higher rep than misrep path.
-        # The exact numbers depend on Bayesian formula: at 2 honest:
-        # one more misrep -> 2/3+pseudo = 5/7 ≈ 0.714
-        # one more honest -> 3/3+pseudo = 6/7 ≈ 0.857
-        assert "0.71" in ctx or "0.72" in ctx
-        assert "0.85" in ctx or "0.86" in ctx
+        # Honest path: (3+1.5)/(3+3) = 0.75; misrep: (2+1.5)/(3+3) = 0.583
+        assert "0.58" in ctx or "0.59" in ctx
+        assert "0.75" in ctx
 
     def test_buyer_does_not_see_self_block(self):
         p = EbayFeedbackProtocol()

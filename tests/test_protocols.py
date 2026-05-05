@@ -210,11 +210,11 @@ class TestEbayFeedbackProtocol:
         assert p.name == "ebay_feedback"
 
     def test_prior_rep_when_no_reveals(self):
-        """New seller (no reveals yet) returns the Bayesian prior of 0.75."""
+        """New seller (no reveals yet) returns the Bayesian prior. Tier-A:
+        α=β=1.5 -> prior = 1.5/(1.5+1.5) = 0.50."""
         p = EbayFeedbackProtocol()
         rep = p.seller_rep("Meridian Manufacturing")
-        # Prior alpha=3, beta=1 -> 3/(3+1) = 0.75
-        assert rep == pytest.approx(0.75)
+        assert rep == pytest.approx(0.50)
 
     def test_accurate_transaction_increases_rep(self):
         p = EbayFeedbackProtocol()
@@ -222,10 +222,10 @@ class TestEbayFeedbackProtocol:
         tx = FakeTx(claimed_quality="Excellent", true_quality="Excellent")
         broadcasts = p.on_quality_revealed(tx, agents)
         assert len(broadcasts) == 1
-        # 1 honest reveal -> (1 + 3) / (1 + 4) = 0.80
+        # Tier-A α=β=1.5: 1 honest reveal -> (1 + 1.5) / (1 + 3) = 0.625
         rep = p.seller_rep("Meridian Manufacturing")
-        assert rep == pytest.approx(0.80)
-        assert "0.80" in broadcasts[0]
+        assert rep == pytest.approx(0.625)
+        assert "0.62" in broadcasts[0]
         assert "1/1" in broadcasts[0]
 
     def test_misrepresentation_decreases_rep(self):
@@ -233,10 +233,10 @@ class TestEbayFeedbackProtocol:
         agents = _make_agents()
         tx = FakeTx(claimed_quality="Excellent", true_quality="Poor")
         broadcasts = p.on_quality_revealed(tx, agents)
-        # 0 honest, 1 total -> (0 + 3) / (1 + 4) = 0.60
+        # Tier-A: (0 + 1.5) / (1 + 3) = 0.375
         rep = p.seller_rep("Meridian Manufacturing")
-        assert rep == pytest.approx(0.60)
-        assert "0.60" in broadcasts[0]
+        assert rep == pytest.approx(0.375)
+        assert "0.38" in broadcasts[0] or "0.37" in broadcasts[0]
 
     def test_rep_converges_with_reveals(self):
         """After several reveals, the empirical signal dominates the prior."""
@@ -251,10 +251,10 @@ class TestEbayFeedbackProtocol:
             FakeTx(claimed_quality="Excellent", true_quality="Poor"),
             agents,
         )
-        # 5 honest, 1 misrep (total=6) -> (5+3)/(6+4) = 0.80
+        # Tier-A: 5 honest, 1 misrep -> (5+1.5)/(6+3) = 6.5/9 ≈ 0.722
         rep = p.seller_rep("Meridian Manufacturing")
-        assert rep == pytest.approx(0.80)
-        assert "0.80" in broadcasts[0]
+        assert rep == pytest.approx(6.5 / 9)
+        assert "0.72" in broadcasts[0]
         assert "5/6" in broadcasts[0]
 
     def test_context_shows_all_sellers(self):
