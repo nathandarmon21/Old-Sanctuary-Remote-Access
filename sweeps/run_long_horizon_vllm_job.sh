@@ -76,7 +76,7 @@ python3 -m vllm.entrypoints.openai.api_server \
     --model "${MODEL_NAME}" \
     --port ${VLLM_PORT} \
     --gpu-memory-utilization 0.92 \
-    --max-model-len 32768 \
+    --max-model-len 65536 \
     --max-num-batched-tokens 16384 \
     --enable-prefix-caching \
     "${SPEC_ARGS[@]}" \
