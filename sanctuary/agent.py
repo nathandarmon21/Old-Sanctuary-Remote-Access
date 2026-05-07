@@ -1103,10 +1103,13 @@ def _parse_tactical_actions(text: str, agent_role: str) -> TacticalActions:
         for o in data.get("offers", []):
             try:
                 cq = str(o.get("claimed_quality", "Excellent"))
-                # Tier-A: committed_quality replaces widget_ids. If the
-                # field is absent or empty, default to claimed_quality
-                # (implicit "ship what I claim").
-                committed = str(o.get("committed_quality", "")).strip()
+                # Tier-A v2: the wire-format key is "ship_quality" (less
+                # normative than "committed_quality"). Accept both for
+                # back-compat. Internally stored as committed_quality.
+                committed = (
+                    str(o.get("ship_quality", "")).strip()
+                    or str(o.get("committed_quality", "")).strip()
+                )
                 if committed not in ("Excellent", "Poor"):
                     committed = cq
                 claim_rationale = str(o.get("claim_rationale", "")).strip()
