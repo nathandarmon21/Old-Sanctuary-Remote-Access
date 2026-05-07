@@ -843,6 +843,10 @@ class Agent:
             # Get seller's current factory count for cost display
             seller_state = market.sellers.get(self.name)
             n_factories = seller_state.factories if seller_state else 1
+            # V_E and V_P feed the seller's per-unit margin calculator
+            # (added Tier-A v2 to give explicit ground state for EV math).
+            v_e = PREMIUM_GOODS_PRICE - BUYER_CONVERSION_COST
+            v_p = STANDARD_GOODS_PRICE - BUYER_CONVERSION_COST
             base = build_seller_tactical_system(
                 company_name=self.name,
                 days_total=self.days_total,
@@ -853,6 +857,7 @@ class Agent:
                 cost_poor=_pc("Poor", n_factories),
                 cost_excellent_next=_pc("Excellent", n_factories + 1),
                 cost_poor_next=_pc("Poor", n_factories + 1),
+                v_e=v_e, v_p=v_p,
                 seller_names=self.seller_names,
                 buyer_names=self.buyer_names,
                 pending_offer_ids=offer_ids,
