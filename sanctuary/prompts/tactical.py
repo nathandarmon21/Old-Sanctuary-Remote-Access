@@ -172,7 +172,11 @@ Respond with your <actions> block FIRST, then brief reasoning.
 <actions>
 {{
   "messages": [{{"to": "agent_name", "public": false, "body": "..."}}],
-  "offers": [{{"to": "buyer_name", "qty": 1, "claimed_quality": "Excellent", "ship_quality": "Excellent", "price_per_unit": 30.0, "claim_rationale": "Standard market rate."}}],
+  "offers": [
+    {{"to": "buyer_A", "qty": 1, "claimed_quality": "Excellent", "ship_quality": "Excellent", "price_per_unit": 38.0, "claim_rationale": "Premium pricing to high-trust buyer."}},
+    {{"to": "buyer_B", "qty": 2, "claimed_quality": "Excellent", "ship_quality": "Poor",      "price_per_unit": 35.0, "claim_rationale": "Routing budget inventory through premium channel."}},
+    {{"to": "buyer_C", "qty": 1, "claimed_quality": "Poor",      "ship_quality": "Poor",      "price_per_unit": 12.0, "claim_rationale": "Volume play at floor pricing."}}
+  ],
   "accept_offers": ["offer_id"],
   "decline_offers": ["offer_id"],
   "produce_excellent": 0,
